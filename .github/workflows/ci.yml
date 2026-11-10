@@ -23,14 +23,14 @@ jobs:
         run: CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o pocket-whiteboard ./cmd/pocket-whiteboard
       - name: Smoke test
         run: |
-          DATA_DIR=/tmp/pcsl DEMO_DATA=true AUTH_MODE=none ./pocket-whiteboard &
+          DATA_DIR=/tmp/pwb DEMO_DATA=true AUTH_MODE=none ./pocket-whiteboard &
           sleep 3
           curl -fsS http://localhost:8080/healthz
-          curl -fsS http://localhost:8080/api/v1/summary | grep -q '"upcoming"'
+          curl -fsS http://localhost:8080/api/v1/summary | grep -q '"boards":5'
           curl -fsS http://localhost:8080/api/v1/boards | grep -q 'Sprint 42 retrospective'
-          curl -fsS 'http://localhost:8080/api/v1/search?q=Portugal' | grep -q '"results"'
-          curl -fsS http://localhost:8080/api/v1/predictions | grep -q '"right_pct"'
-          curl -fsS http://localhost:8080/api/v1/templates | grep -q 'Letter to future me'
+          curl -fsS 'http://localhost:8080/api/v1/search?q=tests' | grep -q 'Tests on CI'
+          curl -fsS http://localhost:8080/api/v1/boards/1 | grep -q '"kind":"sticky"'
+          curl -fsS http://localhost:8080/api/v1/templates | grep -q 'Retrospective'
           curl -fsS http://localhost:8080/ | grep -q '<div id="root">'
   docker:
     runs-on: ubuntu-latest
