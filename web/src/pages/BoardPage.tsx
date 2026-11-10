@@ -1291,6 +1291,20 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
     document.documentElement.requestFullscreen?.().catch(() => {})
   }
   useEffect(() => { if (present === null && document.fullscreenElement) document.exitFullscreen?.().catch(() => {}) }, [present])
+  // Esc in full screen is the browser's: leaving full screen ends presenting too
+  useEffect(() => {
+    const h = () => { if (!document.fullscreenElement) setPresent(p => { if (p !== null) window.setTimeout(() => fitAll(), 0); return null }) }
+    document.addEventListener('fullscreenchange', h)
+    return () => document.removeEventListener('fullscreenchange', h)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  // the board never scrolls as a page: if the browser scrolls it (to show a text caret), put it back
+  const rootRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const els = [rootRef.current, vpRef.current].filter(Boolean) as HTMLElement[]
+    const h = (e: Event) => { const el = e.currentTarget as HTMLElement; if (el.scrollTop || el.scrollLeft) { el.scrollTop = 0; el.scrollLeft = 0 } }
+    els.forEach(el => el.addEventListener('scroll', h))
+    return () => els.forEach(el => el.removeEventListener('scroll', h))
+  }, [])
 
   // ---- the board's own actions
   const rename = async (title: string) => {
@@ -1418,7 +1432,9 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
   const vpTop = vpRef.current?.offsetTop ?? 52
   const barAt = (r: Rect, half = 160, room = 0) => {
     const above = cam.y + r.y * cam.z - 50 - room
-    return { left: clamp(cam.x + (r.x + r.w / 2) * cam.z, half, vpSize.w - half), top: vpTop + (above < 8 ? Math.min(vpSize.h - 50, cam.y + (r.y + r.h) * cam.z + 10 + room) : above) }
+    const top = above < 8 ? cam.y + (r.y + r.h) * cam.z + 10 + room : above
+    // never outside the board area (a bar past the edge lets the browser scroll the page away)
+    return { left: clamp(cam.x + (r.x + r.w / 2) * cam.z, half, Math.max(half, vpSize.w - half)), top: vpTop + clamp(top, 8, Math.max(8, vpSize.h - 50)) }
   }
   // the + buttons above a single picked note or shape need room too
   const plusShown = canEdit && selList.length === 1 && ['sticky', 'shape'].includes(selList[0].kind) && !selList[0].data.locked && cam.z > 0.25
@@ -1430,7 +1446,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
   const noteCount = useMemo(() => sorted.filter(o => o.kind === 'sticky').length, [sorted])
 
   return (
-    <div className={`wb ${present !== null ? 'presenting' : ''} ${mobile ? 'is-mobile' : ''}`}>
+    <div ref={rootRef} className={`wb ${present !== null ? 'presenting' : ''} ${mobile ? 'is-mobile' : ''}`}>
       {/* ---- top bar */}
       <header className="wb-top">
         {!guest ? <button type="button" className="btn ghost icon-only wb-home" onClick={() => navigate('/')} title="All boards" aria-label="All boards"><img src="/favicon.svg" alt="" width={26} height={26} /></button>

@@ -267,7 +267,7 @@ span.chip { cursor: default; }
 .sb-live { width: 7px; height: 7px; border-radius: 50%; background: var(--success); flex-shrink: 0; }
 
 /* ================= the board ================= */
-.wb { position: fixed; inset: 0; display: flex; flex-direction: column; background: var(--wb-bg); color: var(--text); overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
+.wb { position: fixed; inset: 0; display: flex; flex-direction: column; background: var(--wb-bg); color: var(--text); overflow: hidden; overflow: clip; touch-action: none; user-select: none; -webkit-user-select: none; }
 .wb-top { position: relative; z-index: 30; display: flex; align-items: center; gap: 6px; height: 52px; padding: 0 10px; padding-top: env(safe-area-inset-top); box-sizing: content-box; background: var(--wb-chrome); border-bottom: 1px solid var(--wb-chrome-line); backdrop-filter: blur(10px); }
 .wb-home { padding: 4px; }
 .wb-home img { display: block; }
@@ -290,7 +290,7 @@ span.chip { cursor: default; }
 .wb-count.up { color: var(--danger); }
 .wb-count.big { display: block; font-size: 44px; font-weight: 750; letter-spacing: -.02em; margin: 4px 0 10px; }
 
-.wb-vp { position: relative; flex: 1; overflow: hidden; cursor: default; outline: none; }
+.wb-vp { position: relative; flex: 1; overflow: hidden; overflow: clip; cursor: default; outline: none; }
 .wb-vp.bg-dots { background-image: radial-gradient(circle, var(--wb-dot) 1.1px, transparent 1.3px); }
 .wb-vp.bg-grid { background-image: linear-gradient(var(--wb-dot) 1px, transparent 1px), linear-gradient(90deg, var(--wb-dot) 1px, transparent 1px); }
 .wb-vp.is-hand { cursor: grab; }
