@@ -180,7 +180,7 @@ export async function boardCanvas(objs: Obj[], all: Map<string, Obj>, opts: Opts
         c.beginPath(); c.roundRect(o.x, o.y, 8, o.h, [8, 0, 0, 8]); c.fill()
         drawText(c, d.text || 'Card', { x: o.x + 22, y: o.y + 16, w: o.w - 40, h: o.h - 60 }, 18, d.done ? '#8a9099' : '#1d2024', { bold: true, align: 'left', middle: false })
         c.font = `500 13px ${FONT}`; c.fillStyle = '#5b6472'; c.textAlign = 'left'; c.textBaseline = 'alphabetic'
-        c.fillText([d.due ? `Due ${d.due}` : '', d.assignee?.name || '', d.done ? 'Done' : ''].filter(Boolean).join('  ·  '), o.x + 22, o.y + o.h - 16)
+        c.fillText([d.due ? `Due ${d.due}` : '', d.assignee?.name || '', d.done ? 'Done' : '', d.estimate ? `Estimate ${d.estimate}` : ''].filter(Boolean).join('  ·  '), o.x + 22, o.y + o.h - 16)
         break
       }
       case 'embed': {
@@ -202,8 +202,32 @@ export async function boardCanvas(objs: Obj[], all: Map<string, Obj>, opts: Opts
       }
       case 'image': {
         const img = imgs.get(o.id)
-        if (img) c.drawImage(img, o.x, o.y, o.w, o.h)
+        const cr = d.crop
+        if (img && cr) c.drawImage(img, cr.x * img.naturalWidth, cr.y * img.naturalHeight, cr.w * img.naturalWidth, cr.h * img.naturalHeight, o.x, o.y, o.w, o.h)
+        else if (img) c.drawImage(img, o.x, o.y, o.w, o.h)
         else { c.fillStyle = '#e3e5e8'; c.fillRect(o.x, o.y, o.w, o.h) }
+        break
+      }
+      case 'table': {
+        const cells = d.cells || [['']]
+        const n = Math.max(1, ...cells.map(r => r.length))
+        const wts = d.cols && d.cols.length === n ? d.cols : Array(n).fill(1)
+        const sum = wts.reduce((a, b) => a + b, 0) || 1
+        const rh = o.h / cells.length
+        c.fillStyle = '#ffffff'; c.fillRect(o.x, o.y, o.w, o.h)
+        if (d.header) { c.fillStyle = d.fill && d.fill !== 'none' ? paper(d.fill).bg : '#eef1f5'; c.fillRect(o.x, o.y, o.w, rh) }
+        c.strokeStyle = '#c9cdd3'; c.lineWidth = 1
+        let x = o.x
+        for (let ci = 0; ci < n; ci++) {
+          const cw = o.w * wts[ci] / sum
+          for (let ri = 0; ri < cells.length; ri++) {
+            c.strokeRect(x, o.y + ri * rh, cw, rh)
+            const t = cells[ri][ci] || ''
+            if (t) drawText(c, t, { x: x + 10, y: o.y + ri * rh + 4, w: cw - 20, h: rh - 8 }, d.size || 16, '#1d2024', { bold: !!d.header && ri === 0, align: 'left', middle: true })
+          }
+          x += cw
+        }
+        c.strokeStyle = '#9aa1ab'; c.lineWidth = 1.5; c.strokeRect(o.x, o.y, o.w, o.h)
         break
       }
     }

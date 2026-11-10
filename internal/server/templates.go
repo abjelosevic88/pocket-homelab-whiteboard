@@ -94,15 +94,18 @@ var templates = []template{
 			}
 			return t.objs
 		}},
-	{Key: "kanban", Title: "Kanban", About: "To do, doing, done: move the notes along as the work moves.", Emoji: "🗂️",
+	{Key: "kanban", Title: "Kanban", About: "To do, doing, done: drag the cards along; Done marks them done (in Pocket Tasks and Projects too).", Emoji: "🗂️",
 		Objects: func() []store.Object {
 			t := &tplBuilder{}
 			t.text(0, -150, 1200, "Kanban", 48, true)
-			t.text(0, -80, 1400, "Drag a note into the next column when it moves on. Keep “Doing” short.", 20, false)
-			for i, c := range []col{{"To do", "gray"}, {"Doing", "yellow"}, {"Done", "green"}} {
-				t.frame(float64(i)*520, 0, 460, 1000, c.name, c.fill)
+			t.text(0, -80, 1500, "Drag a card into the next column when it moves on. Cards made into tasks or issues follow along there.", 20, false)
+			for i, c := range []struct{ name, fill, column string }{{"To do", "gray", "todo"}, {"Doing", "yellow", "doing"}, {"Done", "green", "done"}} {
+				id := t.frame(float64(i)*520, 0, 460, 1000, c.name, c.fill)
+				o := &t.objs[len(t.objs)-1]
+				o.Data = mustJSON(map[string]any{"title": c.name, "fill": c.fill, "column": c.column})
+				_ = id
 			}
-			t.sticky(30, 60, "Write the first task here", "light-yellow")
+			t.objs = append(t.objs, store.Object{ID: t.id(), Kind: "card", X: 30, Y: 60, W: 400, H: 140, Z: float64(t.n), Data: mustJSON(map[string]any{"text": "Write the first task here", "color": "blue", "column": "todo"})})
 			return t.objs
 		}},
 	{Key: "swot", Title: "SWOT", About: "Strengths, weaknesses, opportunities and threats in four squares.", Emoji: "🧭",

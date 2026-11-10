@@ -145,7 +145,7 @@ type Object struct {
 }
 
 // Kinds are the things a board can hold.
-var Kinds = []string{"sticky", "text", "shape", "line", "frame", "pen", "image", "sticker", "card", "embed", "icon"}
+var Kinds = []string{"sticky", "text", "shape", "line", "frame", "pen", "image", "sticker", "card", "embed", "icon", "table"}
 
 // Upload is a picture put on a board.
 type Upload struct {

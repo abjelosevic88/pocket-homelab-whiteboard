@@ -8,6 +8,7 @@ import { Avatar } from '../ui'
 import { hasFormatting, htmlToText, sanitize, textToHTML } from '../../lib/rich'
 
 export interface EditResult { text: string; html?: string; h?: number }
+export type EditHow = 'done' | 'tab' | 'back' | 'cancel' | 'enter'
 
 export interface ViewProps {
   o: Obj
@@ -16,7 +17,8 @@ export interface ViewProps {
   imgSrc?: string
   remote?: string // the colour of someone else who has it selected
   showAuthor?: boolean
-  onEditDone?: (id: string, r: EditResult, how: 'done' | 'tab' | 'cancel' | 'enter') => void
+  cell?: string // the table cell being written in, "row,col"
+  onEditDone?: (id: string, r: EditResult, how: EditHow) => void
 }
 
 /** Where the editor of the note being written is (the format bar uses it). */
@@ -43,7 +45,7 @@ function Editable({ id, text, html, rich, className, style, onDone, onText, mult
     s?.addRange(r)
     return () => { if (activeEditor === el) activeEditor = null }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
-  const finish = (how: 'done' | 'tab' | 'cancel' | 'enter') => {
+  const finish = (how: EditHow) => {
     if (done.current) return
     done.current = true
     const el = ref.current
@@ -71,7 +73,7 @@ function Editable({ id, text, html, rich, className, style, onDone, onText, mult
       onKeyDown={e => {
         e.stopPropagation()
         if (e.key === 'Escape') { e.preventDefault(); finish('done') }
-        else if (e.key === 'Tab') { e.preventDefault(); finish('tab') }
+        else if (e.key === 'Tab') { e.preventDefault(); finish(e.shiftKey ? 'back' : 'tab') }
         else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey || !multiline) && !e.shiftKey) { e.preventDefault(); finish(multiline ? 'done' : 'enter') }
       }} />
   )
@@ -182,7 +184,10 @@ function CardView({ o, editing, onEditDone }: ViewProps) {
         {d.due && <span className={`ob-card-due ${late ? 'late' : ''}`}><Icon name="calendar" size={13} />{new Date(d.due + 'T12:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span>}
         {d.done && <span className="ob-card-done"><Icon name="check" size={13} />Done</span>}
         <span className="spacer" />
+        {d.estimate && <span className="ob-card-points" title="Estimate">{d.estimate}</span>}
         {d.task && <span className="ob-card-task" title="In Pocket Tasks"><Icon name="check-square" size={14} /></span>}
+        {d.issue && <span className="ob-card-task" title={`${d.issue.identifier} in Pocket Projects`}><Icon name="card" size={14} /></span>}
+        {d.event && <span className="ob-card-task" title="On the calendar"><Icon name="calendar" size={14} /></span>}
         {d.assignee && <span title={d.assignee.name}><Avatar name={d.assignee.name} size={24} /></span>}
       </div>
       <Tags tags={d.tags} />
@@ -295,10 +300,46 @@ function PenView({ o }: ViewProps) {
   )
 }
 
+/** A cropped picture: the whole image, moved and scaled so only the kept part shows. */
+export function cropStyle(o: Obj): React.CSSProperties | undefined {
+  const c = o.data.crop
+  if (!c || (c.w >= 1 && c.h >= 1)) return undefined
+  const w = o.w / c.w, h = o.h / c.h
+  return { position: 'absolute', maxWidth: 'none', width: w, height: h, left: -c.x * w, top: -c.y * h, objectFit: 'fill' }
+}
+
+export function tableCols(o: Obj): number[] {
+  const cells = o.data.cells || [['']]
+  const n = Math.max(1, ...cells.map(r => r.length))
+  const w = o.data.cols && o.data.cols.length === n ? o.data.cols : Array(n).fill(1)
+  const sum = w.reduce((a, b) => a + b, 0) || 1
+  return w.map(x => x / sum)
+}
+
+function TableView({ o, editing, onEditDone, cell }: ViewProps) {
+  const d = o.data
+  const cells = d.cells || [['']]
+  const cols = tableCols(o)
+  const fill = d.fill && d.fill !== 'none' ? paper(d.fill).bg : undefined
+  return (
+    <div className={`ob ob-table ${o.hidden ? 'is-hidden' : ''}`} data-id={o.id} style={place(o, { gridTemplateColumns: cols.map(f => `${f}fr`).join(' '), gridTemplateRows: `repeat(${cells.length}, 1fr)`, fontSize: d.size || 16 })}>
+      {cells.map((row, r) => cols.map((_, c) => {
+        const head = d.header && r === 0
+        const on = editing && (cell || '0,0') === `${r},${c}`
+        return (
+          <div key={`${r}-${c}`} className={`ob-cell ${head ? 'head' : ''}`} data-cell={`${r},${c}`} style={head && fill ? { background: fill } : undefined}>
+            {on ? <Editable id={o.id} text={row[c] || ''} className="ob-cell-edit" onDone={onEditDone} multiline={false} /> : row[c]}
+          </div>
+        )
+      }))}
+    </div>
+  )
+}
+
 function ImageView({ o, imgSrc }: ViewProps) {
   return (
     <div className={`ob ob-image ${o.hidden ? 'is-hidden' : ''}`} data-id={o.id} style={place(o)}>
-      {imgSrc ? <img src={imgSrc} alt={o.data.name || ''} draggable={false} /> : <span className="ob-image-wait" />}
+      {imgSrc ? <img src={imgSrc} alt={o.data.name || ''} draggable={false} style={cropStyle(o)} /> : <span className="ob-image-wait" />}
     </div>
   )
 }
@@ -317,6 +358,7 @@ function View(p: ViewProps) {
       case 'card': return <CardView {...p} />
       case 'embed': return <EmbedView {...p} />
       case 'icon': return <IconView {...p} />
+      case 'table': return <TableView {...p} />
     }
     return null
   })()
@@ -327,5 +369,5 @@ function View(p: ViewProps) {
 }
 
 export const ObjectView = memo(View, (a, b) =>
-  a.o === b.o && a.editing === b.editing && a.imgSrc === b.imgSrc && a.remote === b.remote && a.showAuthor === b.showAuthor &&
+  a.o === b.o && a.editing === b.editing && a.cell === b.cell && a.imgSrc === b.imgSrc && a.remote === b.remote && a.showAuthor === b.showAuthor &&
   (a.o.kind !== 'line' || a.geom?.d === b.geom?.d) && a.onEditDone === b.onEditDone)

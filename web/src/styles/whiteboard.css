@@ -660,3 +660,44 @@ span.chip { cursor: default; }
 .stack.loose > * { min-width: 0; }
 .tpl-row { max-width: 100%; }
 .wb-fly.wb-fly-more { width: auto; display: grid; grid-template-columns: repeat(4, 40px); gap: 2px; padding: 6px; }
+
+/* tables */
+.ob-table { position: absolute; display: grid; background: var(--wb-paper, #fff); border: 1.5px solid #9aa1ab; border-radius: 4px; overflow: hidden; color: #1d2024; }
+.ob-cell { border-right: 1px solid #c9cdd3; border-bottom: 1px solid #c9cdd3; padding: 6px 10px; overflow: hidden; line-height: 1.3; word-break: break-word; min-width: 0; min-height: 0; display: flex; align-items: center; }
+.ob-cell.head { font-weight: 650; background: #eef1f5; }
+.ob-cell-edit { width: 100%; outline: none; min-height: 1.3em; }
+/* lasso */
+.wb-lasso { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+.wb-lasso path { fill: color-mix(in srgb, var(--wb-sel) 8%, transparent); stroke: var(--wb-sel); }
+/* cropped pictures and cards */
+.ob-image { overflow: hidden; }
+.ob-card-points { min-width: 22px; height: 22px; padding: 0 6px; border-radius: 99px; background: #eef1f5; color: #1d2024; font-size: 12px; font-weight: 700; display: inline-grid; place-items: center; }
+
+/* planning poker */
+.wb-poker { position: absolute; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 24; width: min(640px, calc(100vw - 120px)); padding: 10px 12px 12px; border-radius: 16px; background: var(--wb-chrome); border: 1px solid var(--wb-chrome-line); box-shadow: 0 12px 34px -12px rgba(0, 0, 0, .35), 0 2px 6px rgba(0, 0, 0, .06); backdrop-filter: blur(10px); display: flex; flex-direction: column; gap: 10px; }
+.wb-poker-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.wb-poker-head > .icon { color: var(--accent); flex: none; }
+.wb-poker-what { font-weight: 650; color: var(--text); max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-poker-head .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.wb-poker-cards { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.wb-poker-card { width: 40px; height: 54px; border-radius: 8px; border: 1.5px solid var(--border); background: var(--surface); color: var(--text); font: inherit; font-size: 16px; font-weight: 700; display: inline-grid; place-items: center; cursor: pointer; transition: transform .12s, border-color .12s, background .12s; }
+button.wb-poker-card:hover { border-color: var(--accent); }
+.wb-poker-card.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.wb-poker-card.on { transform: translateY(-4px); }
+.wb-poker-results { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; justify-content: center; }
+.wb-poker-result { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.wb-poker-result:not(.top) .wb-poker-card.on { background: var(--surface); color: var(--text); border-color: var(--border); }
+.wb-poker-avg { align-self: center; }
+@media (max-width: 720px) { .wb-poker { width: calc(100vw - 24px); bottom: calc(12px + env(safe-area-inset-bottom)); } .wb-poker-card { width: 34px; height: 46px; font-size: 14px; } }
+.wb-anon-bar > .icon { color: #8e4ec6; }
+.wb-team-key { font-size: 11.5px; font-weight: 700; padding: 1px 6px; border-radius: 5px; background: var(--hover); color: var(--text-2); }
+
+/* cropping a picture */
+.wb-crop-area { position: relative; width: 100%; max-height: 60vh; margin: 0 auto; user-select: none; touch-action: none; background: #111; border-radius: 8px; overflow: hidden; }
+.wb-crop-area img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; pointer-events: none; }
+.wb-crop-box { position: absolute; box-shadow: 0 0 0 9999px rgba(0, 0, 0, .55); outline: 2px solid #fff; cursor: move; }
+.wb-crop-h { position: absolute; width: 14px; height: 14px; background: #fff; border-radius: 3px; box-shadow: 0 1px 3px rgba(0, 0, 0, .4); }
+.wb-crop-h.nw { left: -7px; top: -7px; cursor: nwse-resize; } .wb-crop-h.se { right: -7px; bottom: -7px; cursor: nwse-resize; }
+.wb-crop-h.ne { right: -7px; top: -7px; cursor: nesw-resize; } .wb-crop-h.sw { left: -7px; bottom: -7px; cursor: nesw-resize; }
+.wb-crop-h.n { left: calc(50% - 7px); top: -7px; cursor: ns-resize; } .wb-crop-h.s { left: calc(50% - 7px); bottom: -7px; cursor: ns-resize; }
+.wb-crop-h.w { top: calc(50% - 7px); left: -7px; cursor: ew-resize; } .wb-crop-h.e { top: calc(50% - 7px); right: -7px; cursor: ew-resize; }

@@ -5,7 +5,7 @@ export interface APIToken { id: number; user_id: number; name: string; prefix: s
 
 export type ConnMode = 'core' | 'direct' | 'off'
 export type ConnVia = 'core' | 'direct' | ''
-export type AppSlug = 'tasks' | 'notes' | 'chat' | 'files'
+export type AppSlug = 'tasks' | 'notes' | 'chat' | 'files' | 'projects' | 'calendar'
 type ConnFields = { [K in AppSlug as `${K}_mode`]: ConnMode } & { [K in AppSlug as `${K}_via`]: ConnVia } & { [K in AppSlug as `${K}_detail` | `${K}_url` | `${K}_token` | `${K}_public_url` | `${K}_open_url`]: string } & { [K in AppSlug as `${K}_configured`]: boolean }
 
 export type Settings = ConnFields & {
@@ -23,14 +23,15 @@ export type AppStateName = 'on' | 'partly' | 'off' | 'link_off' | 'missing' | 'o
 export interface AppState { slug: AppSlug; name: string; reason: string; mode: ConnMode; via: ConnVia; state: AppStateName; detail: string; fix: string; on: string[]; open_url: string }
 
 export type Background = 'dots' | 'grid' | 'plain'
-export type Kind = 'sticky' | 'text' | 'shape' | 'line' | 'frame' | 'pen' | 'image' | 'sticker' | 'card' | 'embed' | 'icon'
+export type Kind = 'sticky' | 'text' | 'shape' | 'line' | 'frame' | 'pen' | 'image' | 'sticker' | 'card' | 'embed' | 'icon' | 'table'
 export type Role = 'owner' | 'editor' | 'viewer'
 
 export interface Vote { round: number; per_person: number; open: boolean; done: boolean; hide: boolean; started_at?: string; started_by?: string }
 export interface Board {
   id: number; title: string; about: string; template: string; background: Background; share_mode: 'off' | 'view' | 'edit'; share_key?: string
-  timer_ends: string; timer_secs: number; vote: Vote; version: number; owner_name: string; owner_id?: number; private?: PrivateMode; created_at: string; updated_at: string; role?: Role
+  timer_ends: string; timer_secs: number; vote: Vote; version: number; owner_name: string; owner_id?: number; private?: PrivateMode; anonymous?: boolean; poker?: Poker | null; created_at: string; updated_at: string; role?: Role
 }
+export interface Poker { object: string; by: string; started_at: string; revealed: boolean; picked: string[]; picked_n?: number; picks?: { name: string; value: string }[]; average?: number; mine?: string }
 export interface PrivateMode { on: boolean; by?: string; started_at?: string }
 export interface PrivateCount { voter: string; name: string; n: number }
 export interface Reaction { emoji: string; names: string[]; voters: string[] }
@@ -48,11 +49,13 @@ export interface ObjData {
   x1?: number; y1?: number; x2?: number; y2?: number; from?: string; to?: string; start?: 'none' | 'arrow' | 'dot'; end?: 'none' | 'arrow' | 'dot'
   curve?: 'straight' | 'elbow' | 'curve'; dash?: boolean; width?: number
   points?: number[][]; highlight?: boolean
-  upload?: number; src?: string; name?: string
+  upload?: number; src?: string; name?: string; crop?: { x: number; y: number; w: number; h: number }
   locked?: boolean; tags?: string[]
   group?: string; rot?: number; html?: string; emoji?: string
   // cards
-  due?: string; done?: boolean; assignee?: { id: number; name: string }; task?: { id: number; url: string }
+  due?: string; done?: boolean; assignee?: { id: number; name: string }; task?: { id: number; url: string }; issue?: { id: number; identifier: string; url: string }; event?: { id: number; url: string }; estimate?: string; column?: 'todo' | 'doing' | 'done'; body?: string
+  // tables
+  cells?: string[][]; cols?: number[]; header?: boolean
   // embeds and icons
   url?: string; embed?: 'link' | 'youtube' | 'pdf' | 'file'; description?: string; image?: string; site?: string; favicon?: string; video?: string; mime?: string; bytes?: number; icon?: string
   // mind maps

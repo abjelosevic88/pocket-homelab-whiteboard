@@ -79,14 +79,30 @@ type note struct {
 
 func objText(o store.Object) (text, colour string) {
 	var d struct {
-		Text  string `json:"text"`
-		Title string `json:"title"`
-		Color string `json:"color"`
-		Fill  string `json:"fill"`
+		Text  string     `json:"text"`
+		Title string     `json:"title"`
+		Color string     `json:"color"`
+		Fill  string     `json:"fill"`
+		Cells [][]string `json:"cells"`
 	}
 	_ = json.Unmarshal(o.Data, &d)
 	if o.Kind == "frame" {
 		return strings.TrimSpace(d.Title), d.Fill
+	}
+	if o.Kind == "table" {
+		rows := []string{}
+		for _, r := range d.Cells {
+			cells := []string{}
+			for _, c := range r {
+				if c = strings.TrimSpace(c); c != "" {
+					cells = append(cells, c)
+				}
+			}
+			if len(cells) > 0 {
+				rows = append(rows, strings.Join(cells, " · "))
+			}
+		}
+		return strings.Join(rows, "\n"), ""
 	}
 	return strings.TrimSpace(d.Text), firstNonEmpty(d.Color, d.Fill)
 }

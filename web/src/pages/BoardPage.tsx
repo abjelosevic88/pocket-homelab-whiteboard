@@ -15,7 +15,8 @@ import { boardCanvas, boardPNG } from '../lib/exportImage'
 import { uploadDoc, uploadPicture } from '../lib/upload'
 import { pagesToPDF } from '../lib/pdf'
 import { toolCursor } from '../lib/cursor'
-import { ObjectView, VoteBadge, tagColour, type EditResult } from '../components/board/ObjectView'
+import { ObjectView, VoteBadge, tableCols, tagColour, type EditHow, type EditResult } from '../components/board/ObjectView'
+import { CropDialog, PokerBar } from '../components/board/Workshop'
 import { EmojiGrid, FindBar, FloatLayer, FormatBar, REACTIONS, STICKERS, TEXT_SIZES, TagPicker, type Float } from '../components/board/Extras'
 import { CommentsPanel, NewThread, ThreadCard, pinAt, threadsOf, type MentionPerson } from '../components/board/Comments'
 import { HistoryPanel } from '../components/board/History'
@@ -24,7 +25,7 @@ import { ICON_NAMES, Icon } from '../components/icons'
 import { AskButton } from '../components/AskButton'
 import { Avatar, Confirm, ContextMenu, Loading, type MenuItem, MenuButton, Modal, Segmented, copyText, errMsg, useIsMobile, useToast } from '../components/ui'
 
-type Tool = 'select' | 'hand' | 'sticky' | 'text' | 'shape' | 'line' | 'pen' | 'eraser' | 'frame' | 'comment' | 'sticker' | 'mind' | 'card' | 'embed' | 'icon'
+type Tool = 'select' | 'hand' | 'sticky' | 'text' | 'shape' | 'line' | 'pen' | 'eraser' | 'frame' | 'comment' | 'sticker' | 'mind' | 'card' | 'embed' | 'icon' | 'table' | 'lasso'
 interface Cam { x: number; y: number; z: number }
 type State = [string, Obj | null][]
 
@@ -51,7 +52,18 @@ async function call<T>(conn: Conn, method: string, path: string, body?: unknown)
   return res.status === 204 ? (undefined as T) : res.json()
 }
 
+const COLUMN_NAMES: Record<string, string> = { todo: 'To do', doing: 'Doing', done: 'Done' }
+type AlignHow = 'left' | 'top' | 'hcenter' | 'vcenter' | 'hspread' | 'vspread'
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v))
+/** Whether a point is inside a closed loop (even-odd rule). */
+function inPolygon(x: number, y: number, pts: Pt[]): boolean {
+  let inside = false
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const a = pts[i], b = pts[j]
+    if ((a.y > y) !== (b.y > y) && x < ((b.x - a.x) * (y - a.y)) / (b.y - a.y) + a.x) inside = !inside
+  }
+  return inside
+}
 const isEditable = (t: EventTarget | null) => !!(t as HTMLElement | null)?.closest?.('input, textarea, select, [contenteditable="true"], [contenteditable="plaintext-only"]')
 const slim = (o: Obj): Obj => ({ id: o.id, kind: o.kind, x: Math.round(o.x * 10) / 10, y: Math.round(o.y * 10) / 10, w: Math.round(o.w * 10) / 10, h: Math.round(o.h * 10) / 10, z: o.z, data: o.data })
 
@@ -125,6 +137,7 @@ function BoardError({ text, guest }: { text: string; guest?: boolean }) {
 type Drag =
   | { mode: 'pan'; sx: number; sy: number; cam: Cam; moved: boolean }
   | { mode: 'marquee'; start: Pt; add: boolean; base: Set<string> }
+  | { mode: 'lasso'; pts: Pt[]; add: boolean; base: Set<string> }
   | { mode: 'move'; start: Pt; ids: string[]; orig: Map<string, Obj>; before: State; moved: boolean; hit: string; wasSel: boolean; shift: boolean; sx: number; sy: number }
   | { mode: 'resize'; handle: string; start: Pt; box: Rect; orig: Map<string, Obj>; before: State }
   | { mode: 'create'; id: string; start: Pt; before: State }
@@ -173,6 +186,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
   const [editing, setEditingState] = useState<string | null>(null)
   const editingRef = useRef<string | null>(null)
   const setEditing = (id: string | null) => { editingRef.current = id; setEditingState(id) }
+  const [editCell, setEditCell] = useState('0,0') // the table cell being written in
 
   const [tool, setToolState] = useState<Tool>('select')
   const toolRef = useRef<Tool>('select')
@@ -185,6 +199,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
   const toolsRef = useRef<HTMLElement>(null)
 
   const [marquee, setMarquee] = useState<Rect | null>(null)
+  const [lasso, setLasso] = useState<Pt[] | null>(null)
   const [guides, setGuides] = useState<{ x?: number; y?: number }[]>([])
   const [hoverTarget, setHoverTarget] = useState<string | null>(null)
   const [cursors, setCursors] = useState<Map<string, Cursor>>(new Map())
@@ -446,6 +461,29 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
     window.clearTimeout(viewT.current)
     viewT.current = window.setTimeout(() => sendCursor(), 180)
   }, [cam]) // eslint-disable-line react-hooks/exhaustive-deps
+  // ---- anonymous notes, planning poker
+  const toggleAnonymous = async (on: boolean) => {
+    try { const r = await req<{ board: Board }>('PUT', '/anonymous', { on }); setBoard(b => ({ ...b, ...r.board })); toast(on ? 'Anonymous: nobody sees who wrote what' : 'Names are back (notes written while anonymous stay nameless)') } catch (e) { toast(errMsg(e), 'err') }
+  }
+  const [myPick, setMyPick] = useState('')
+  const pokerRound = board.poker ? `${board.poker.object}|${board.poker.started_at}` : ''
+  useEffect(() => { setMyPick(board.poker?.mine || '') }, [pokerRound]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { const p = board.poker; if (p && !p.revealed && (p.picked_n ?? p.picked.length) === 0) setMyPick('') }, [board.poker])
+  const pokerCall = async (method: string, path: string, body?: unknown) => {
+    try { const r = await call<{ board: Board }>(conn, method, path, body); setBoard(b => ({ ...b, ...r.board })); return r.board } catch (e) { toast(errMsg(e), 'err') }
+  }
+  const startPoker = async (id: string) => {
+    const b = await pokerCall('POST', '/poker', { object: id })
+    if (b) { setMyPick(''); setSel(new Set([id])) }
+  }
+  const pokerPick = async (v: string) => { const was = myPick; setMyPick(v); if (!(await pokerCall('POST', '/poker/pick', { value: v }))) setMyPick(was) }
+  const pokerKeep = async (v: string) => {
+    const o = board.poker && objsRef.current.get(board.poker.object)
+    if (o) { const n = withData(o, { estimate: v }); commit([n]); if (n.kind === 'card') syncLinked(n) }
+    await pokerCall('DELETE', '/poker')
+    toast(`Kept ${v}`)
+  }
+  const [cropping, setCropping] = useState<string | null>(null)
   const togglePrivate = async (on: boolean) => {
     try { const r = await req<{ board: Board; revealed: number }>('PUT', '/private', { client: CLIENT, on }); setBoard(b => ({ ...b, ...r.board })); if (!on) { resync(); toast(r.revealed ? `${r.revealed} private ${r.revealed === 1 ? 'note' : 'notes'} revealed` : 'Private mode is off') } } catch (e) { toast(errMsg(e), 'err') }
   }
@@ -654,6 +692,20 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
     return { dx: bx?.d || 0, dy: by?.d || 0, g }
   }
 
+  const edgeSnap = (x: number | null, y: number | null, skip: Set<string>): { x?: number; y?: number } => {
+    const tol = 6 / camRef.current.z
+    const all = objsRef.current
+    if (all.size > 1500) return {}
+    let bx: number | undefined, by: number | undefined, dx = tol, dy = tol
+    for (const o of all.values()) {
+      if (skip.has(o.id) || o.kind === 'line' || o.kind === 'pen') continue
+      const r = rectOf(o)
+      if (x !== null) for (const v of [r.x, r.x + r.w / 2, r.x + r.w]) if (Math.abs(v - x) < dx) { dx = Math.abs(v - x); bx = v }
+      if (y !== null) for (const v of [r.y, r.y + r.h / 2, r.y + r.h]) if (Math.abs(v - y) < dy) { dy = Math.abs(v - y); by = v }
+    }
+    return { x: bx, y: by }
+  }
+
   const onPointerDown = (e: React.PointerEvent) => {
     if ((e.target as HTMLElement).closest('.wb-ctx, .wb-tools, .wb-zoom, .wb-panel, .wb-vote-bar, .ob-edit')) return
     if (e.button === 2) return
@@ -797,6 +849,15 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
         commit([o]); setSel(new Set([o.id])); setEditing(o.id); setTool('select'); return
       }
       case 'embed': setEmbedAt(p); setTool('select'); return
+      case 'table': {
+        const o = make('table', { x: snapV(p.x) - 240, y: snapV(p.y) - 90, w: 480, h: 180 }, { cells: [['', '', ''], ['', '', ''], ['', '', '']], header: true, fill: 'light-blue' })
+        commit([o]); setSel(new Set([o.id])); setEditCell('0,0'); setEditing(o.id); setTool('select'); return
+      }
+      case 'lasso': {
+        if (!e.shiftKey) setSel(new Set())
+        dragRef.current = { mode: 'lasso', pts: [p], add: e.shiftKey, base: e.shiftKey ? new Set(selRef.current) : new Set() }
+        return
+      }
     }
   }
   const linkRef = useRef<string | null>(null)
@@ -806,20 +867,47 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
 
   // ---- cards (kept in step with Pocket Tasks when linked)
   const cardSyncT = useRef(new Map<string, number>())
-  const syncCard = async (id: string, quiet = true) => {
+  const cardCall = async (id: string, what: 'task' | 'issue' | 'event', quiet: boolean, body?: unknown) => {
     try {
-      const r = await call<{ text?: string; url?: string }>(conn, 'POST', `/cards/${id}/task`)
+      const r = await call<{ text?: string; url?: string }>(conn, 'POST', `/cards/${id}/${what}`, body)
       if (!quiet) toast(r.text || 'Done', 'ok', r.url ? { label: 'Open', run: () => window.open(r.url, '_blank', 'noopener') } : undefined)
     } catch (e) { if (!quiet) toast(errMsg(e), 'err') }
+  }
+  const syncCard = (id: string, quiet = true) => cardCall(id, 'task', quiet)
+  /** Send a card's changes to every app it is linked with (Tasks, Projects, Calendar). */
+  const syncLinked = (o: Obj) => {
+    window.clearTimeout(cardSyncT.current.get(o.id))
+    if (!o.data.task && !o.data.issue && !o.data.event) return
+    cardSyncT.current.set(o.id, window.setTimeout(() => {
+      const n = objsRef.current.get(o.id)
+      if (!n) return
+      if (n.data.task) cardCall(n.id, 'task', true)
+      if (n.data.issue) cardCall(n.id, 'issue', true)
+      if (n.data.event && n.data.due) cardCall(n.id, 'event', true)
+    }, 900))
   }
   const setCards = (d: Partial<ObjData>) => {
     const list = selected().filter(o => o.kind === 'card')
     if (!list.length) return
     commit(list.map(o => withData(o, d)))
-    for (const o of list) if (o.data.task) {
-      window.clearTimeout(cardSyncT.current.get(o.id))
-      cardSyncT.current.set(o.id, window.setTimeout(() => syncCard(o.id), 900))
+    for (const o of list) syncLinked(o)
+  }
+  // Kanban: a card dropped in a column frame takes that column (Done marks it done)
+  const kanbanDrop = (ids: string[]) => {
+    const all = objsRef.current
+    const cols = [...all.values()].filter(o => o.kind === 'frame' && o.data.column)
+    if (!cols.length) return
+    const puts: Obj[] = []
+    for (const id of ids) {
+      const o = all.get(id)
+      if (!o || o.kind !== 'card') continue
+      const col = frameOf(o, cols)?.data.column
+      if (!col || col === o.data.column) continue
+      puts.push(withData(o, { column: col, done: col === 'done' || undefined }))
     }
+    if (!puts.length) return
+    commit(puts)
+    for (const o of puts) syncLinked(o)
   }
   // bring changes made in Pocket Tasks onto the cards
   useEffect(() => {
@@ -955,6 +1043,20 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
         setCam({ ...d.cam, x: d.cam.x + e.clientX - d.sx, y: d.cam.y + e.clientY - d.sy })
         return
       }
+      case 'lasso': {
+        const last = d.pts[d.pts.length - 1]
+        if (Math.hypot(p.x - last.x, p.y - last.y) * camRef.current.z < 4) return
+        d.pts.push(p)
+        setLasso([...d.pts])
+        // what sits wholly inside the loop
+        const s = new Set(d.base)
+        if (d.pts.length > 3) for (const o of all.values()) {
+          const r = rectOf(o, all)
+          if ([[r.x, r.y], [r.x + r.w, r.y], [r.x, r.y + r.h], [r.x + r.w, r.y + r.h]].every(([x, y]) => inPolygon(x, y, d.pts))) s.add(o.id)
+        }
+        setSel(e.altKey ? s : withGroups(s))
+        return
+      }
       case 'marquee': {
         const r = { x: Math.min(d.start.x, p.x), y: Math.min(d.start.y, p.y), w: Math.abs(p.x - d.start.x), h: Math.abs(p.y - d.start.y) }
         setMarquee(r)
@@ -997,6 +1099,12 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
           const w = box.w * s, h = box.h * s
           if (handle.includes('w')) x1 = x2 - w; else x2 = x1 + w
           if (handle.includes('n')) y1 = y2 - h; else y2 = y1 + h
+        } else if (!settings?.snap && !e.altKey) {
+          // the edge being pulled lines up with the edges and middles of other things
+          const g = edgeSnap(handle.includes('w') ? x1 : handle.includes('e') ? x2 : null, handle.includes('n') ? y1 : handle.includes('s') ? y2 : null, new Set(d.orig.keys()))
+          if (g.x !== undefined) { if (handle.includes('w')) x1 = Math.min(g.x, x2 - 10); else x2 = Math.max(g.x, x1 + 10) }
+          if (g.y !== undefined) { if (handle.includes('n')) y1 = Math.min(g.y, y2 - 10); else y2 = Math.max(g.y, y1 + 10) }
+          setGuides([...(g.x !== undefined ? [{ x: g.x }] : []), ...(g.y !== undefined ? [{ y: g.y }] : [])])
         }
         const sx = (x2 - x1) / box.w, sy = (y2 - y1) / box.h
         const puts: Obj[] = []
@@ -1070,12 +1178,13 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
   const finishDrag = (cancelled = false) => {
     const d = dragRef.current
     dragRef.current = null
-    setMarquee(null); setGuides([]); setHoverTarget(null)
+    setMarquee(null); setLasso(null); setGuides([]); setHoverTarget(null)
+    if (d?.mode === 'lasso') setTool('select')
     if (!d) return
     const all = objsRef.current
     switch (d.mode) {
       case 'move': {
-        if (d.moved) { record(d.before); return }
+        if (d.moved) { record(d.before); if (canEdit) kanbanDrop(d.ids); return }
         if (cancelled) return
         const o = all.get(d.hit)
         if (votes.open && o) { castVote(d.hit, 1); return }
@@ -1146,6 +1255,14 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
   const onDouble = (id: string | null, p: Pt) => {
     if (!canEdit || votes.open) return
     const o = id ? objsRef.current.get(id) : undefined
+    if (o?.kind === 'table' && !o.data.locked) {
+      const rows = (o.data.cells || [['']]).length
+      const fr = tableCols(o)
+      let c = 0, acc = 0
+      for (; c < fr.length - 1; c++) { acc += fr[c]; if ((p.x - o.x) / o.w < acc) break }
+      const r = clamp(Math.floor((p.y - o.y) / (o.h / rows)), 0, rows - 1)
+      setEditCell(`${r},${c}`); setSel(new Set([o.id])); setEditing(o.id); return
+    }
     if (o && !o.data.locked && ['sticky', 'text', 'shape', 'frame', 'line', 'card'].includes(o.kind)) { setSel(new Set([o.id])); setEditing(o.id); return }
     if (o?.kind === 'embed') { openEmbed(o); return }
     if (!o) addSticky({ x: snapV(p.x), y: snapV(p.y) })
@@ -1177,12 +1294,28 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
   }
 
   // ---- editing text
-  const onEditDone = useCallback((id: string, r: EditResult, how: 'done' | 'tab' | 'cancel' | 'enter') => H.current.editDone(id, r, how), [])
-  const editDone = (id: string, r: EditResult, how: 'done' | 'tab' | 'cancel' | 'enter') => {
+  const onEditDone = useCallback((id: string, r: EditResult, how: EditHow) => H.current.editDone(id, r, how), [])
+  const editDone = (id: string, r: EditResult, how: EditHow) => {
     if (editingRef.current === id) setEditing(null)
     const o = objsRef.current.get(id)
     if (!o) return
     const { text, html, h } = r
+    if (o.kind === 'table') {
+      // a cell: Tab goes on to the next one, Shift+Tab back, Enter down (a new row at the end)
+      const cells = (o.data.cells || [['']]).map(row => [...row])
+      const cols = Math.max(1, ...cells.map(x => x.length))
+      const [r0, c0] = editCell.split(',').map(Number)
+      if (how !== 'cancel' && (cells[r0]?.[c0] || '') !== text) { cells[r0][c0] = text }
+      let r1 = r0, c1 = c0
+      if (how === 'tab') { c1++; if (c1 >= cols) { c1 = 0; r1++ } }
+      else if (how === 'back') { c1--; if (c1 < 0) { c1 = cols - 1; r1 = Math.max(0, r1 - 1) } }
+      else if (how === 'enter') r1++
+      let n = o
+      if (r1 >= cells.length && (how === 'tab' || how === 'enter')) { cells.push(Array(cols).fill('')); n = { ...o, h: o.h + o.h / (cells.length - 1) } }
+      if (JSON.stringify(cells) !== JSON.stringify(o.data.cells)) commit([withData(n, { cells })])
+      if (how === 'tab' || how === 'back' || how === 'enter') { setEditCell(`${r1},${c1}`); setSel(new Set([o.id])); setEditing(o.id) }
+      return
+    }
     const key = o.kind === 'frame' ? 'title' : 'text'
     const before = (o.data[key as 'text'] || '') as string
     if (o.kind === 'text' && !text.trim()) { commit([], [o.id]); return }
@@ -1192,8 +1325,13 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
       commit([n])
     }
     if (o.data.mind && (how === 'tab' || how === 'enter')) { mindAdd(o.id, how === 'tab' ? 'child' : 'sibling'); return }
-    if (how === 'tab' && o.kind === 'sticky') {
-      const n: Obj = { ...o, id: newID(), x: o.x + o.w + 24, z: zs().hi + 1, data: { ...o.data, text: '', html: undefined }, author: me.name }
+    if ((how === 'tab' || how === 'back') && o.kind === 'sticky') {
+      // the next note to the right (Shift+Tab: below), past any note already there
+      const gap = 24
+      let x = how === 'tab' ? o.x + o.w + gap : o.x, y = how === 'tab' ? o.y : o.y + o.h + gap
+      const taken = (px: number, py: number) => [...objsRef.current.values()].some(q => q.kind === 'sticky' && Math.abs(q.x - px) < o.w / 2 && Math.abs(q.y - py) < o.h / 2)
+      for (let i = 0; i < 50 && taken(x, y); i++) { if (how === 'tab') x += o.w + gap; else y += o.h + gap }
+      const n: Obj = { ...o, id: newID(), x, y, z: zs().hi + 1, data: { ...o.data, text: '', html: undefined }, author: me.name }
       commit([n]); setSel(new Set([n.id])); setEditing(n.id)
     }
   }
@@ -1373,15 +1511,47 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
     }
     commit(puts)
   }
-  const align = (how: 'left' | 'top' | 'hcenter' | 'vcenter') => {
+  const tableEdit = (how: 'row' | 'col' | 'unrow' | 'uncol' | 'header') => {
+    const o = selected().find(x => x.kind === 'table')
+    if (!o) return
+    const cells = (o.data.cells || [['']]).map(r => [...r])
+    const ncol = Math.max(1, ...cells.map(r => r.length))
+    let cols = tableCols(o).map(f => f * ncol)
+    let { w, h } = o
+    const rowH = h / cells.length
+    if (how === 'row') { cells.push(Array(ncol).fill('')); h += rowH }
+    else if (how === 'unrow' && cells.length > 1) { cells.pop(); h -= rowH }
+    else if (how === 'col') { for (const r of cells) while (r.length < ncol + 1) r.push(''); cols = [...cols, 1]; w += w / ncol }
+    else if (how === 'uncol' && ncol > 1) { const last = cols[cols.length - 1]; for (const r of cells) r.length = ncol - 1; cols = cols.slice(0, -1); w -= w * last / ncol }
+    else if (how === 'header') { commit([withData(o, { header: !o.data.header || undefined })]); return }
+    else return
+    commit([withData({ ...o, w, h }, { cells, cols })])
+  }
+  const align = (how: AlignHow) => {
     const l = selected().filter(o => o.kind !== 'line')
     if (l.length < 2) return
+    if (how === 'hspread' || how === 'vspread') {
+      // equal gaps between them, the first and last stay put
+      if (l.length < 3) return
+      const h = how === 'hspread'
+      const by = [...l].sort((a, b) => (h ? a.x - b.x : a.y - b.y))
+      const first = by[0], last = by[by.length - 1]
+      const span = h ? last.x + last.w - first.x : last.y + last.h - first.y
+      const used = by.reduce((t, o) => t + (h ? o.w : o.h), 0)
+      const gap = (span - used) / (by.length - 1)
+      let at = h ? first.x : first.y
+      const puts: Obj[] = []
+      for (const o of by) { puts.push(moved(o, h ? at - o.x : 0, h ? 0 : at - o.y)); at += (h ? o.w : o.h) + gap }
+      commit(puts.filter((o, i) => o.x !== by[i].x || o.y !== by[i].y))
+      return
+    }
     const box = union(l.map(o => rectOf(o)))!
     commit(l.map(o => ({ ...o, x: how === 'left' ? box.x : how === 'hcenter' ? box.x + box.w / 2 - o.w / 2 : o.x, y: how === 'top' ? box.y : how === 'vcenter' ? box.y + box.h / 2 - o.h / 2 : o.y })))
   }
 
   // ---- clipboard
   const clip = useRef<Obj[]>([])
+  const objsHaveUpload = (u: number) => [...objsRef.current.values()].some(o => o.data.upload === u)
   const pasteObjs = (list: Obj[], at?: Pt) => {
     const box = union(list.map(o => rectOf(o)))
     if (!box) return
@@ -1432,7 +1602,17 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
       if (!text) return
       e.preventDefault()
       if (text.startsWith('pocket-whiteboard:')) {
-        try { pasteObjs(JSON.parse(text.slice(18)) as Obj[], at) } catch { /* not ours after all */ }
+        let list: Obj[]
+        try { list = JSON.parse(text.slice(18)) as Obj[] } catch { return /* not ours after all */ }
+        const ups = [...new Set(list.map(o => o.data.upload).filter((u): u is number => !!u && !objsHaveUpload(u)))]
+        if (!ups.length || guest) { pasteObjs(list, at); return }
+        // pictures and files from another board: copy them here, so everyone on this board sees them
+        call<{ ids: Record<string, number> }>(conn, 'POST', '/uploads/adopt', { ids: ups }).then(r => {
+          pasteObjs(list.map(o => {
+            const nu = o.data.upload ? r.ids[String(o.data.upload)] : undefined
+            return nu && nu !== o.data.upload ? withData(o, { upload: nu, src: o.data.src ? `${V1}/uploads/${nu}` : undefined }) : o
+          }), at)
+        }).catch(() => pasteObjs(list, at))
         return
       }
       if (/^https?:\/\/\S+$/i.test(text.trim())) { createEmbed(text.trim(), at); return }
@@ -1488,7 +1668,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
       if (k === '[' && canEdit) { order(false); return }
       if (k === '=' || k === '+') { zoomBy(1.25); return }
       if (k === '-') { zoomBy(0.8); return }
-      const tools: Record<string, Tool> = { v: 'select', h: 'hand', n: 'sticky', t: 'text', s: 'shape', r: 'shape', l: 'line', p: 'pen', e: 'eraser', f: 'frame', c: 'comment', k: 'sticker', m: 'mind', d: 'card', u: 'embed' }
+      const tools: Record<string, Tool> = { v: 'select', h: 'hand', n: 'sticky', t: 'text', s: 'shape', r: 'shape', l: 'line', p: 'pen', e: 'eraser', f: 'frame', c: 'comment', k: 'sticker', m: 'mind', d: 'card', u: 'embed', b: 'table', a: 'lasso' }
       if (k === 'u' && canEdit) { setEmbedAt(viewCenter()); return }
       if (k === 'c' && guest && !canEdit) return
       if (tools[k] && (canEdit || k === 'v' || k === 'h' || k === 'c')) { setTool(tools[k]); setFlyout(['sticker', 'shape', 'line', 'pen'].includes(tools[k]) ? tools[k] : null); return }
@@ -1636,6 +1816,8 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
       ] : []),
       'sep',
       ...(canEdit && coloured && !locked ? [{ label: 'Colour', icon: 'palette', submenu: STICKY_KEYS.map(c => ({ label: <span className="wb-menu-colour"><i style={{ background: STICKY[c].bg }} />{STICKY[c].name}</span>, checked: !!one && (one.data.color || one.data.fill) === c, onSelect: () => colourAll(c) })) }] : []),
+      ...(canEdit && !guest && one && one.kind !== 'line' && one.kind !== 'pen' ? [{ label: 'Estimate it together (planning poker)', icon: 'poker', onSelect: () => startPoker(one.id) }] : []),
+      ...(canEdit && one?.kind === 'image' && !locked ? [{ label: 'Crop…', icon: 'crop', onSelect: () => setCropping(one.id) }] : []),
       ...(canEdit && one?.kind === 'sticker' && !locked ? [{ label: 'Change the sticker…', icon: 'sticker', onSelect: () => setEmojiPick({ x: ctxMenu!.x, y: ctxMenu!.y, title: 'Change the sticker', list: STICKERS, cols: 8, current: [one.data.emoji || ''], pick: e => restyle({ emoji: e }) }) }] : []),
       ...(reactable ? [{ label: 'React…', icon: 'smile', onSelect: () => setEmojiPick({ x: ctxMenu!.x, y: ctxMenu!.y, title: 'React', list: REACTIONS, cols: 4, current: (reactions[one!.id] || []).filter(r => r.voters.includes(me.voter)).map(r => r.emoji), pick: e => react(one!.id, e) }) }] : []),
       ...(canEdit && taggable.length && !locked ? [{ label: 'Tags', icon: 'tag', submenu: [
@@ -1667,6 +1849,8 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
   const notesOK = !guest && appState('notes', 'notes:write').ok
   const filesOK = !guest && appState('files', 'files:write').ok
   const chatOK = !guest && appState('chat', 'chat:write').ok
+  const projectsOK = !guest && appState('projects', 'projects:write').ok
+  const calendarOK = !guest && appState('calendar', 'calendar:write').ok
   const needs = (ok: boolean, app: string) => ok ? undefined : `Connect Pocket ${app} in Settings → Connected apps`
 
   const boardMenu = (): MenuItem[] => [
@@ -1676,6 +1860,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
     { label: 'Find on this board', icon: 'search', hint: '⌘F', onSelect: () => setFind({ q: '', i: 0 }) },
     ...(canEdit ? [{ label: 'Group the notes by tag', icon: 'tag', onSelect: groupByTag }] : []),
     ...(canEdit && !guest ? [{ label: board.private?.on ? 'Private mode: reveal all' : 'Private mode', icon: 'eye-off', onSelect: () => togglePrivate(!board.private?.on) }] : []),
+    ...(canEdit && !guest ? [{ label: board.anonymous ? 'Anonymous notes: show names again' : 'Anonymous notes (nobody sees who wrote what)', icon: 'user', onSelect: () => toggleAnonymous(!board.anonymous) }] : []),
     ...(!guest ? [{ label: 'Bring everyone to me', icon: 'magnet', onSelect: summon }, { label: 'History and deleted things', icon: 'history', onSelect: () => setPanel('history') }] : []),
     'sep',
     { label: sel.size ? 'Download a picture of what is picked' : 'Download a picture of the board', icon: 'image', onSelect: () => savePicture() },
@@ -1763,6 +1948,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
       case 'icon': return g('icon', -48, -48, 96, 96, { icon: iconPick, color: '#1d2024' })
       case 'mind': return g('shape', -120, -40, 240, 80, { shape: 'round', text: '', fill: MIND_FILLS[0], size: 24, bold: true })
       case 'card': return g('card', -140, -70, 280, 140, { text: '', color: 'blue' })
+      case 'table': return g('table', -240, -90, 480, 180, { cells: [['', '', ''], ['', '', ''], ['', '', '']], header: true, fill: 'light-blue' })
     }
     return null
   }, [tool, stickyColor, shapeForm, sticker, iconPick])
@@ -1788,7 +1974,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
       : tool
     return toolCursor({ kind: 'icon', icon })
   }, [cursorClass, ghost, tool, stickyColor, sticker, pen, shapeForm, iconPick, lineCurve])
-  const showAuthor = !mobile && cam.z > 0.6
+  const showAuthor = !mobile && cam.z > 0.6 && !board.anonymous
   const h = 10 / cam.z
 
   // the selection bar sits above what is picked, in screen space
@@ -1882,6 +2068,14 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
         </div>
       )}
 
+      {board.anonymous && present === null && !votes.open && !board.poker && <div className="wb-vote-bar wb-anon-bar"><Icon name="user" size={16} /><span><b>Anonymous</b> — nobody sees who wrote what.</span></div>}
+      {board.poker && present === null && (() => {
+        const o = objs.get(board.poker.object)
+        return <PokerBar poker={board.poker} what={o ? textOf(o).split('\n')[0].slice(0, 60) || 'This' : 'This'} mine={myPick} host={canEdit && !guest}
+          onPick={pokerPick} onShow={() => pokerCall('PUT', '/poker/reveal', { revealed: true })} onAgain={() => { setMyPick(''); pokerCall('PUT', '/poker/reveal', { revealed: false }) }}
+          onSave={pokerKeep} onEnd={() => pokerCall('DELETE', '/poker')} onFocus={() => { if (o) { setSel(new Set([o.id])); animateTo(camFor(rectOf(o, objs), 160, 1.5)) } }} />
+      })()}
+      {cropping && (() => { const o = objs.get(cropping); return o ? <CropDialog src={conn.imgSrc(o)} o={o} onClose={() => setCropping(null)} onDone={(crop, w, h) => { setCropping(null); commit([withData({ ...o, w, h }, { crop })]) }} /> : null })()}
       {/* ---- the canvas */}
       <div ref={vpRef} className={`wb-vp bg-${bg} ${cursorClass}`} style={addCursor ? { ...vpStyle, cursor: addCursor } : vpStyle}
         onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={e => { pointers.current.delete(e.pointerId); finishDrag(true) }}
@@ -1893,7 +2087,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
           {sorted.map(o => {
             if (o.kind !== 'line' && !sel.has(o.id) && editing !== o.id && !overlaps(visible, o)) return null
             return (
-              <ObjectView key={o.id} o={o} geom={o.kind === 'line' ? linePath(o, objs) : undefined} editing={editing === o.id} onEditDone={onEditDone}
+              <ObjectView key={o.id} o={o} geom={o.kind === 'line' ? linePath(o, objs) : undefined} editing={editing === o.id} onEditDone={onEditDone} cell={editing === o.id && o.kind === 'table' ? editCell : undefined}
                 imgSrc={o.kind === 'image' ? conn.imgSrc(o) : undefined} remote={remoteSel.get(o.id)} showAuthor={showAuthor} />
             )
           })}
@@ -1944,6 +2138,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
             </> : null
           })()}
           {hoverTarget && objs.get(hoverTarget) && (() => { const r = rectOf(objs.get(hoverTarget)!); return <div className="wb-target" style={{ left: r.x - 4 / cam.z, top: r.y - 4 / cam.z, width: r.w + 8 / cam.z, height: r.h + 8 / cam.z, borderWidth: 2 / cam.z }} /> })()}
+          {lasso && <svg className="wb-lasso" width="1" height="1" aria-hidden><path d={'M' + lasso.map(q => `${q.x} ${q.y}`).join('L') + 'Z'} strokeWidth={1.5 / cam.z} strokeDasharray={`${5 / cam.z} ${4 / cam.z}`} /></svg>}
           {marquee && <div className="wb-marquee" style={{ left: marquee.x, top: marquee.y, width: marquee.w, height: marquee.h, borderWidth: 1 / cam.z }} />}
           {guides.map((g, i) => g.x !== undefined
             ? <div key={i} className="wb-guide" style={{ left: g.x, top: visible.y, width: 1 / cam.z, height: visible.h }} />
@@ -1997,6 +2192,8 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
                 { t: 'embed', el: <ToolBtn key="embed" icon="embed" label="Link, video or file" k="U" on={false} onClick={() => { setFlyout(null); setEmbedAt(viewCenter()); setTool('select') }} /> },
                 { t: 'image', el: <ToolBtn key="image" icon="image" label="Picture" k="I" on={false} onClick={() => { setFlyout(null); pickImage() }} /> },
                 { t: 'sticker', el: <ToolBtn key="sticker" icon="sticker" label="Sticker" k="K" on={tool === 'sticker'} onClick={() => { setTool('sticker'); setFlyout(flyout === 'sticker' ? null : 'sticker') }} more /> },
+                { t: 'table', el: <ToolBtn key="table" icon="table" label="Table" k="B" on={tool === 'table'} onClick={() => setTool('table')} /> },
+                { t: 'lasso', el: <ToolBtn key="lasso" icon="lasso" label="Lasso: draw round what to pick" k="A" on={tool === 'lasso'} onClick={() => setTool('lasso')} /> },
                 { t: 'eraser', el: <ToolBtn key="eraser" icon="eraser" label="Eraser (pen lines)" k="E" on={tool === 'eraser'} onClick={() => setTool('eraser')} /> },
               ]
               const step = mobile ? 34 : 42
@@ -2018,7 +2215,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
           {flyout === 'sticky' && (
             <div className="wb-fly">
               <div className="wb-swatches">{STICKY_KEYS.map(c => <button key={c} type="button" className={`wb-sw ${c === stickyColor ? 'on' : ''}`} style={{ background: STICKY[c].bg }} title={STICKY[c].name} aria-label={STICKY[c].name} onClick={() => { setStickyColor(c); setFlyout(null) }} />)}</div>
-              <p className="muted small">Click the board to put a note there. Tip: double-click anywhere.</p>
+              <p className="muted small">Click the board to put a note there. While writing, Tab adds the next note to the right, Shift+Tab one below.</p>
             </div>
           )}
           {flyout === 'shape' && (
@@ -2082,7 +2279,12 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
           onReact={e => react(selList[0].id, e)} myReactions={(reactions[selList[0].id] || []).filter(r => r.voters.includes(me.voter)).map(r => r.emoji)}
           onComment={() => { const o = selList[0]; setOpenThread(null); setNewThread({ object_id: o.kind === 'line' ? '' : o.id, x: Math.round(o.x + o.w), y: Math.round(o.y) }) }}
           people={mentionPeople} onCard={setCards} onCardTask={tasksOK ? () => { for (const o of selList.filter(x => x.kind === 'card')) syncCard(o.id, false) } : undefined}
-          onOpenEmbed={() => openEmbed(selList[0])} />
+          onOpenEmbed={() => openEmbed(selList[0])}
+          onCardIssue={projectsOK ? team => cardCall(selList[0].id, 'issue', false, team ? { team } : undefined) : undefined} projectsHint={needs(projectsOK, 'Projects')}
+          loadTeams={async () => (await call<{ teams: { key: string; name: string }[] }>(conn, 'GET', '/cards/teams')).teams}
+          onCardEvent={calendarOK ? () => cardCall(selList[0].id, 'event', false) : undefined} calendarHint={needs(calendarOK, 'Calendar')}
+          onPoker={canEdit && selList.length === 1 && selList[0].kind !== 'line' && selList[0].kind !== 'pen' ? () => startPoker(selList[0].id) : undefined}
+          onCrop={() => setCropping(selList[0].id)} onTable={tableEdit} />
       )}
 
       {/* ---- zoom */}
@@ -2237,16 +2439,20 @@ function ToolBtn({ icon, label, k, on, onClick, disabled, more, dot }: { icon: s
 // ---- the bar over what is picked
 
 function ContextBar({ pos, list, canEdit, guest, onColour, onStyle, onFront, onBack, onDuplicate, onDelete, onLock, onGrid, onByColour, onAlign, onFocus, onTasks, tasksHint, onAI, onVote, onUnvote, onEdit,
-  onGroup, onUngroup, allTags, onTag, onByTag, onReact, myReactions, onComment, people, onCard, onCardTask, onOpenEmbed }: {
+  onGroup, onUngroup, allTags, onTag, onByTag, onReact, myReactions, onComment, people, onCard, onCardTask, onOpenEmbed,
+  onCardIssue, loadTeams, projectsHint, onCardEvent, calendarHint, onPoker, onCrop, onTable }: {
   pos: { left: number; top: number }; list: Obj[]; canEdit: boolean; guest: boolean
   onColour: (c: string) => void; onStyle: (d: Partial<ObjData>, only?: (o: Obj) => boolean) => void; onFront: () => void; onBack: () => void; onDuplicate: () => void; onDelete: () => void; onLock: () => void
-  onGrid: () => void; onByColour: () => void; onAlign: (h: 'left' | 'top' | 'hcenter' | 'vcenter') => void; onFocus: () => void
+  onGrid: () => void; onByColour: () => void; onAlign: (h: AlignHow) => void; onFocus: () => void
   onTasks?: () => void; tasksHint?: string; onAI?: () => void; onVote?: () => void; onUnvote?: () => void; onEdit: () => void
   onGroup: () => void; onUngroup: () => void; allTags: string[]; onTag: (t: string, add: boolean) => void; onByTag: () => void
   onReact: (e: string) => void; myReactions: string[]; onComment: () => void
   people: MentionPerson[]; onCard: (d: Partial<ObjData>) => void; onCardTask?: () => void; onOpenEmbed: () => void
+  onCardIssue?: (team?: string) => void; loadTeams: () => Promise<{ key: string; name: string }[]>; projectsHint?: string
+  onCardEvent?: () => void; calendarHint?: string; onPoker?: () => void; onCrop: () => void
+  onTable: (how: 'row' | 'col' | 'unrow' | 'uncol' | 'header') => void
 }) {
-  const [open, setOpen] = useState<'colour' | 'shape' | 'ink' | 'tags' | 'react' | 'size' | 'emoji' | 'stroke' | 'due' | 'who' | null>(null)
+  const [open, setOpen] = useState<'colour' | 'shape' | 'ink' | 'tags' | 'react' | 'size' | 'emoji' | 'stroke' | 'due' | 'who' | 'team' | 'column' | null>(null)
   const grouped = list.length > 1 && list.every(o => o.data.group && o.data.group === list[0].data.group)
   const anyGroup = list.some(o => o.data.group)
   const taggable = list.filter(o => o.kind === 'sticky' || o.kind === 'shape')
@@ -2259,6 +2465,7 @@ function ContextBar({ pos, list, canEdit, guest, onColour, onStyle, onFront, onB
   )
   const kinds = new Set(list.map(o => o.kind))
   const one = list.length === 1 ? list[0] : null
+  const [teams, setTeams] = useState<{ key: string; name: string }[] | null>(null)
   const locked = list.every(o => o.data.locked)
   const coloured = kinds.has('sticky') || kinds.has('shape') || kinds.has('frame') || kinds.has('card')
   const cards = list.every(o => o.kind === 'card')
@@ -2285,6 +2492,10 @@ function ContextBar({ pos, list, canEdit, guest, onColour, onStyle, onFront, onB
       { label: 'Line up left edges', icon: 'align-left', onSelect: () => onAlign('left') },
       { label: 'Line up centres', icon: 'align-center', onSelect: () => onAlign('hcenter') },
       { label: 'Line up top edges', icon: 'arrow-up', onSelect: () => onAlign('top') },
+      ...(list.filter(o => o.kind !== 'line').length > 2 ? [
+        { label: 'Spread across, equal gaps', icon: 'spread-h', onSelect: () => onAlign('hspread') },
+        { label: 'Spread down, equal gaps', icon: 'spread-v', onSelect: () => onAlign('vspread') },
+      ] : []),
     ] : []),
     ...(list.length > 1 && !grouped ? [{ label: 'Group', icon: 'group', hint: '⌘G', onSelect: onGroup }] : []),
     ...(anyGroup ? [{ label: 'Ungroup', icon: 'ungroup', hint: '⇧⌘G', onSelect: onUngroup }] : []),
@@ -2335,6 +2546,42 @@ function ContextBar({ pos, list, canEdit, guest, onColour, onStyle, onFront, onB
         </div>
         <button type="button" className={`btn ghost icon-only sm ${list.every(o => o.data.done) ? 'on' : ''}`} onClick={() => onCard({ done: !list.every(o => o.data.done) || undefined })} title={list.every(o => o.data.done) ? 'Not done yet' : 'Done'} aria-label="Done"><Icon name="check-circle" size={16} /></button>
         {!guest && <button type="button" className={`btn ghost sm ${list.some(o => o.data.task) ? 'on' : ''}`} disabled={!onCardTask} onClick={onCardTask} title={onCardTask ? (list.some(o => o.data.task) ? 'Send to Pocket Tasks now' : 'Make it a task in Pocket Tasks (kept in step)') : tasksHint}><Icon name="check-square" size={15} />{list.some(o => o.data.task) ? 'In Tasks' : 'To Tasks'}</button>}
+        {!guest && one && <div className="wb-ctx-drop">
+          <button type="button" className={`btn ghost sm ${one.data.issue ? 'on' : ''}`} disabled={!onCardIssue}
+            title={onCardIssue ? (one.data.issue ? `Send to ${one.data.issue.identifier} in Pocket Projects now` : 'Make it an issue in Pocket Projects (kept in step)') : projectsHint}
+            onClick={async () => {
+              if (!onCardIssue) return
+              if (one.data.issue) { onCardIssue(); return }
+              setOpen(open === 'team' ? null : 'team')
+              if (open !== 'team') { setTeams(null); try { const t = await loadTeams(); if (t.length === 1) { setOpen(null); onCardIssue(t[0].key) } else setTeams(t) } catch { setTeams([]) } }
+            }}><Icon name="card" size={15} />{one.data.issue ? one.data.issue.identifier : 'To Projects'}</button>
+          {open === 'team' && <div className="wb-ctx-pop wb-who">
+            {teams === null && <span className="muted small">Finding your teams…</span>}
+            {teams?.length === 0 && <span className="muted small">No teams in Pocket Projects yet.</span>}
+            {teams?.map(t => <button key={t.key} type="button" className="wb-rank-row" onClick={() => { setOpen(null); onCardIssue?.(t.key) }}><span className="wb-team-key">{t.key}</span><span className="grow">{t.name}</span></button>)}
+          </div>}
+        </div>}
+        {!guest && one && <button type="button" className={`btn ghost icon-only sm ${one.data.event ? 'on' : ''}`} disabled={!onCardEvent || !one.data.due} onClick={onCardEvent}
+          title={!onCardEvent ? calendarHint : !one.data.due ? 'Give it a due date to put it on the calendar' : one.data.event ? 'Move it on the calendar too' : 'Put the due date on your calendar'} aria-label="On the calendar"><Icon name="clock" size={16} /></button>}
+        {one && onPoker && <button type="button" className={`btn ghost icon-only sm ${one.data.estimate ? 'on' : ''}`} onClick={onPoker} title={one.data.estimate ? `Estimate: ${one.data.estimate} — estimate again` : 'Estimate it together (planning poker)'} aria-label="Planning poker"><Icon name="poker" size={16} /></button>}
+      </>}
+      {one?.kind === 'frame' && !locked && canEdit && (
+        <div className="wb-ctx-drop">
+          <button type="button" className={`btn ghost sm ${one.data.column ? 'on' : ''}`} onClick={() => setOpen(open === 'column' ? null : 'column')} title="Kanban column: cards dropped here take its state"><Icon name="columns" size={15} />{one.data.column ? COLUMN_NAMES[one.data.column] : 'Column'}</button>
+          {open === 'column' && <div className="wb-ctx-pop wb-who">
+            <span className="muted small">Cards dropped in this frame become:</span>
+            {(['todo', 'doing', 'done'] as const).map(c => <button key={c} type="button" className={`wb-rank-row ${one.data.column === c ? 'on' : ''}`} onClick={() => { onStyle({ column: c }); setOpen(null) }}><span className="grow">{COLUMN_NAMES[c]}</span>{one.data.column === c && <Icon name="check" size={14} />}</button>)}
+            {one.data.column && <button type="button" className="wb-rank-row" onClick={() => { onStyle({ column: undefined }); setOpen(null) }}><Icon name="x" size={14} /><span className="grow">Not a column</span></button>}
+          </div>}
+        </div>
+      )}
+      {one?.kind === 'image' && !locked && canEdit && <button type="button" className={`btn ghost icon-only sm ${one.data.crop ? 'on' : ''}`} onClick={onCrop} title="Crop" aria-label="Crop"><Icon name="crop" size={16} /></button>}
+      {one?.kind === 'table' && !locked && canEdit && <>
+        <button type="button" className="btn ghost sm" onClick={() => onTable('row')} title="Add a row at the bottom"><Icon name="plus" size={14} />Row</button>
+        <button type="button" className="btn ghost sm" onClick={() => onTable('col')} title="Add a column on the right"><Icon name="plus" size={14} />Column</button>
+        <button type="button" className="btn ghost icon-only sm" disabled={(one.data.cells || []).length < 2} onClick={() => onTable('unrow')} title="Remove the bottom row" aria-label="Remove the bottom row"><Icon name="minus" size={14} /></button>
+        <button type="button" className="btn ghost icon-only sm" disabled={Math.max(0, ...(one.data.cells || []).map(r => r.length)) < 2} onClick={() => onTable('uncol')} title="Remove the right column" aria-label="Remove the right column"><Icon name="x" size={14} /></button>
+        <button type="button" className={`btn ghost sm ${one.data.header ? 'on' : ''}`} onClick={() => onTable('header')} title="First row as headings">Headings</button>
       </>}
       {shapes && !locked && (
         <div className="wb-ctx-drop">

@@ -4,6 +4,7 @@ import type { AppSlug, AppStateName } from './types'
 export const APP_INFO: Record<AppSlug, { name: string; icon: string }> = {
   tasks: { name: 'Pocket Tasks', icon: 'check-square' }, notes: { name: 'Pocket Notes', icon: 'note' },
   chat: { name: 'Pocket Chat', icon: 'message' }, files: { name: 'Pocket Files', icon: 'archive' },
+  projects: { name: 'Pocket Projects', icon: 'card' }, calendar: { name: 'Pocket Calendar', icon: 'calendar' },
 }
 
 export const STATE_WORDS: Record<AppStateName, string> = {

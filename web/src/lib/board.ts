@@ -445,6 +445,7 @@ export function framesInOrder(objs: Iterable<Obj>): Obj[] {
 // ---- data defaults ----
 
 export function textOf(o: Obj): string {
+  if (o.kind === 'table') return (o.data.cells || []).map(r => r.filter(Boolean).join(' · ')).filter(Boolean).join('\n')
   return (o.kind === 'frame' ? o.data.title : o.data.text) || ''
 }
 

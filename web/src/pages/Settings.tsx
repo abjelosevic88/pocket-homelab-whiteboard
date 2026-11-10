@@ -174,6 +174,8 @@ const APPS: { slug: AppSlug; title: string; sub: string; token: string; port: st
   { slug: 'notes', title: 'Pocket Notes — keep the board as text', sub: 'Every note on a board as a note: a heading per frame, the votes beside them.', token: 'Pocket Notes → Settings → API tokens', port: '8182' },
   { slug: 'chat', title: 'Pocket Chat — bring people in', sub: 'Send a board\'s link to a chat so the others can join.', token: 'Pocket Chat → Settings → API tokens', port: '8247' },
   { slug: 'files', title: 'Pocket Files — keep a picture', sub: 'A picture (PNG) of a board in your files.', token: 'Pocket Files → Settings → API tokens', port: '8187' },
+  { slug: 'projects', title: 'Pocket Projects — cards become issues', sub: 'Make a card an issue in a team; its title, due date and Kanban column stay in step.', token: 'Pocket Projects → Settings → API tokens', port: '8196' },
+  { slug: 'calendar', title: 'Pocket Calendar — due dates on the calendar', sub: 'Put a card\'s due date on your calendar as an all-day event.', token: 'Pocket Calendar → Settings → API tokens', port: '8190' },
 ]
 function Integrations() {
   const { f, setF, save, busy } = useSettingsForm()
