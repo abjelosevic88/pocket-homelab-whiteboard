@@ -460,3 +460,6 @@ span.chip { cursor: default; }
 .wb-width i { display: block; border-radius: 50%; }
 .wb-fly .segmented.wb-full { display: flex; width: 100%; }
 .wb-fly .segmented.wb-full button { flex: 1; min-width: 0; padding-left: 4px; padding-right: 4px; }
+.wb-fly.wb-fly-pen { width: 212px; }
+.wb-fly-pen .wb-swatches { grid-template-columns: repeat(4, 1fr); justify-items: center; }
+.wb-fly .segmented.wb-full button { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

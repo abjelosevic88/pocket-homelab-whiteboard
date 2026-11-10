@@ -1339,7 +1339,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
             </div>
           )}
           {flyout === 'pen' && (
-            <div className="wb-fly">
+            <div className="wb-fly wb-fly-pen">
               <div className="wb-swatches">{INKS.map(c => <button key={c} type="button" className={`wb-sw round ${c === pen.color ? 'on' : ''}`} style={{ background: c }} aria-label={c} onClick={() => setPen(p => ({ ...p, color: c }))} />)}</div>
               <div className="wb-widths" role="radiogroup" aria-label="Thickness">
                 {([[2, 'Thin'], [4, 'Medium'], [8, 'Thick']] as const).map(([w, n]) => (
