@@ -14,6 +14,7 @@ import {
 import { boardCanvas, boardPNG } from '../lib/exportImage'
 import { uploadDoc, uploadPicture } from '../lib/upload'
 import { pagesToPDF } from '../lib/pdf'
+import { toolCursor } from '../lib/cursor'
 import { ObjectView, VoteBadge, tagColour, type EditResult } from '../components/board/ObjectView'
 import { EmojiGrid, FindBar, FloatLayer, FormatBar, REACTIONS, STICKERS, TEXT_SIZES, TagPicker, type Float } from '../components/board/Extras'
 import { CommentsPanel, NewThread, ThreadCard, pinAt, threadsOf, type MentionPerson } from '../components/board/Comments'
@@ -1747,6 +1748,18 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
   const gridStep = cam.z < 0.35 ? 120 : cam.z < 0.7 ? 40 : 20
   const vpStyle: React.CSSProperties = bg === 'plain' ? {} : { backgroundSize: `${gridStep * cam.z}px ${gridStep * cam.z}px`, backgroundPosition: `${cam.x}px ${cam.y}px` }
   const cursorClass = spaceDown || tool === 'hand' ? 'is-hand' : tool === 'select' ? '' : tool === 'eraser' ? 'is-erase' : 'is-cross'
+  // the pointer shows what a click adds
+  const addCursor = useMemo(() => {
+    if (cursorClass !== 'is-cross') return undefined
+    if (tool === 'sticky') { const s = paper(stickyColor); return toolCursor({ kind: 'note', bg: s.bg, ink: s.ink }) }
+    if (tool === 'sticker') return toolCursor({ kind: 'emoji', emoji: sticker })
+    if (tool === 'pen') return toolCursor({ kind: 'icon', icon: 'pen', color: pen.color === '#ffffff' ? '#8a919b' : pen.color })
+    const icon = tool === 'shape' ? SHAPES.find(x => x.form === shapeForm)?.icon || 'square'
+      : tool === 'icon' ? iconPick
+      : tool === 'line' ? (lineCurve === 'straight' ? 'arrow-line' : lineCurve === 'elbow' ? 'elbow' : 'curve')
+      : tool
+    return toolCursor({ kind: 'icon', icon })
+  }, [cursorClass, tool, stickyColor, sticker, pen, shapeForm, iconPick, lineCurve])
   const showAuthor = !mobile && cam.z > 0.6
   const h = 10 / cam.z
 
@@ -1842,7 +1855,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
       )}
 
       {/* ---- the canvas */}
-      <div ref={vpRef} className={`wb-vp bg-${bg} ${cursorClass}`} style={vpStyle}
+      <div ref={vpRef} className={`wb-vp bg-${bg} ${cursorClass}`} style={addCursor ? { ...vpStyle, cursor: addCursor } : vpStyle}
         onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={e => { pointers.current.delete(e.pointerId); finishDrag(true) }}
         onPointerLeave={() => { if (!dragRef.current) sendCursor(true) }}
         onContextMenu={e => { e.preventDefault(); if (!e.shiftKey) openMenuAt(e.clientX, e.clientY, e.target) }}
