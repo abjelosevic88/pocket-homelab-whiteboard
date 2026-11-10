@@ -126,6 +126,16 @@ func (s *Server) Router() http.Handler {
 				r.Get("/boards/{id}/versions/{vid}", s.handleVersion)
 				r.Post("/boards/{id}/versions/{vid}/restore", s.handleRestoreVersion)
 				r.Post("/boards/{id}/trash/{tid}/restore", s.handleRestoreTrashed)
+				r.Get("/folders", s.handleFolders)
+				r.Post("/folders", s.handleSaveFolder)
+				r.Put("/folders/{fid}", s.handleSaveFolder)
+				r.Delete("/folders/{fid}", s.handleDeleteFolder)
+				r.Put("/boards/{id}/folder", s.handleBoardFolder)
+				r.Post("/boards/{id}/template", s.handleSaveTemplate)
+				r.Delete("/templates/mine/{tid}", s.handleDeleteTemplate)
+				r.Get("/unfurl", s.handleUnfurl)
+				r.Post("/boards/{id}/cards/{oid}/task", s.handleCardTask)
+				r.Post("/boards/{id}/cards/pull", s.handleCardsPull)
 
 				// the other Pocket apps
 				r.Get("/apps", s.handleApps)

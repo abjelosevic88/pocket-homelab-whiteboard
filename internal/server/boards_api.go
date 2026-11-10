@@ -6,6 +6,7 @@ import (
 	"math"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -88,7 +89,7 @@ func (s *Server) handleBoards(w http.ResponseWriter, r *http.Request) {
 	for i := range list {
 		b := &list[i]
 		m := boardOut(b, &actor{b: b, u: u, role: b.Role})
-		m["starred"], m["opened_at"], m["objects_n"], m["members_n"] = b.Starred, b.OpenedAt, b.Objects, b.Members
+		m["starred"], m["opened_at"], m["objects_n"], m["members_n"], m["folder_id"] = b.Starred, b.OpenedAt, b.Objects, b.Members, b.FolderID
 		m["live"] = s.hub.count(b.ID)
 		if !queryBool(r, "plain") {
 			objs, _ := s.store.Objects(ctx, b.ID)
@@ -107,12 +108,31 @@ func (s *Server) handleCreateBoard(w http.ResponseWriter, r *http.Request) {
 		About      string `json:"about"`
 		Template   string `json:"template"`
 		Background string `json:"background"`
+		FolderID   int64  `json:"folder_id"`
 	}
 	if err := decode(r, &in); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
+	// one of the person's own templates ("u:ID")
+	var mine []store.Object
 	tpl, ok := templateByKey(firstNonEmpty(in.Template, "blank"))
+	if strings.HasPrefix(in.Template, "u:") {
+		tid, _ := strconv.ParseInt(strings.TrimPrefix(in.Template, "u:"), 10, 64)
+		t, objs, err := s.store.Template(ctx, u.ID, tid)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "unknown template")
+			return
+		}
+		tpl = template{Key: "blank", Title: t.Title, About: t.About, Objects: func() []store.Object { return nil }}
+		if in.Background == "" {
+			in.Background = t.Background
+		}
+		if in.About == "" {
+			in.About = t.About
+		}
+		mine, ok = objs, true
+	}
 	if !ok {
 		writeErr(w, http.StatusBadRequest, "unknown template")
 		return
@@ -137,6 +157,15 @@ func (s *Server) handleCreateBoard(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, err, "create board")
 			return
 		}
+	}
+	if len(mine) > 0 {
+		if err := s.copyObjects(ctx, u.ID, b.ID, mine, nil); err != nil {
+			s.fail(w, err, "create board")
+			return
+		}
+	}
+	if in.FolderID > 0 {
+		_ = s.store.SetFolder(ctx, u.ID, b.ID, in.FolderID)
 	}
 	b, _ = s.store.GetBoard(ctx, b.ID)
 	s.publish(ctx, u.ID, "whiteboard.board_created", b.Title, map[string]any{"board_id": b.ID, "title": b.Title, "template": b.Template, "url": s.boardURL(b)})

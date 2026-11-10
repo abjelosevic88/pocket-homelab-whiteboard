@@ -16,7 +16,11 @@ import (
 
 const maxUpload = 25 << 20
 
-var allowedMime = map[string]bool{"image/jpeg": true, "image/png": true, "image/webp": true, "image/gif": true, "image/svg+xml": false}
+var allowedMime = map[string]bool{"image/jpeg": true, "image/png": true, "image/webp": true, "image/gif": true, "image/svg+xml": false,
+	"application/pdf": true, "text/plain": true, "text/csv": true, "application/zip": true,
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document": true, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": true,
+	"application/vnd.openxmlformats-officedocument.presentationml.presentation": true, "application/vnd.oasis.opendocument.text": true,
+	"application/vnd.oasis.opendocument.spreadsheet": true, "application/msword": true, "application/vnd.ms-excel": true}
 
 // handleUpload stores a picture (shrunk by the browser) for a board the
 // person may change.
@@ -64,8 +68,13 @@ func (s *Server) saveUpload(w http.ResponseWriter, r *http.Request, a *actor) {
 	if i := strings.Index(mime, ";"); i > 0 {
 		mime = mime[:i]
 	}
+	if mime == "application/octet-stream" || mime == "text/plain" || mime == "application/zip" {
+		if guess := mimeByExt(hdr.Filename); guess != "" {
+			mime = guess
+		}
+	}
 	if !allowedMime[mime] {
-		writeErr(w, http.StatusBadRequest, "pictures only (JPEG, PNG, WebP or GIF)")
+		writeErr(w, http.StatusBadRequest, "pictures, PDFs and documents (Word, Excel, PowerPoint, text, CSV) only")
 		return
 	}
 	up.Mime, up.Data, up.Name = mime, data, safeName(hdr.Filename)
@@ -85,7 +94,7 @@ func (s *Server) saveUpload(w http.ResponseWriter, r *http.Request, a *actor) {
 func mimeByExt(name string) string {
 	return map[string]string{".pdf": "application/pdf", ".txt": "text/plain", ".md": "text/plain", ".csv": "text/csv", ".zip": "application/zip", ".mp3": "audio/mpeg",
 		".m4a": "audio/mp4", ".mp4": "video/mp4", ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-		".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".odt": "application/vnd.oasis.opendocument.text", ".doc": "application/msword", ".xls": "application/vnd.ms-excel"}[strings.ToLower(filepath.Ext(name))]
+		".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation", ".ods": "application/vnd.oasis.opendocument.spreadsheet", ".odt": "application/vnd.oasis.opendocument.text", ".doc": "application/msword", ".xls": "application/vnd.ms-excel"}[strings.ToLower(filepath.Ext(name))]
 }
 
 func safeName(n string) string {
@@ -124,7 +133,12 @@ func (s *Server) serveUpload(w http.ResponseWriter, r *http.Request, up *store.U
 		disp = "attachment"
 	}
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`%s; filename="%s"`, disp, strings.ReplaceAll(up.Name, `"`, "")))
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox")
+	if up.Mime == "application/pdf" {
+		// the browser's own PDF viewer (shown on the board) does not open in a sandbox
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'self'")
+	} else {
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox")
+	}
 	http.ServeContent(w, r, up.Name, time.Time{}, bytes.NewReader(data))
 }
 

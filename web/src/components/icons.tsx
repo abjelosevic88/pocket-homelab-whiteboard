@@ -1,5 +1,29 @@
 // Stroke icons (24-grid, 1.75 stroke) drawn inline — no icon dependency.
 const P: Record<string, string> = {
+  pentagon: 'M12 2l10 7.3-3.8 11.7H5.8L2 9.3z',
+  octagon: 'M8 2h8l6 6v8l-6 6H8l-6-6V8z',
+  'cross-shape': 'M8 2h8v6h6v8h-6v6H8v-6H2V8h6z',
+  callout: 'M4 3h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H10l-5 4v-4H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z',
+  'block-arrow': 'M2 8h11V3l9 9-9 9v-5H2z',
+  'chevron-shape': 'M2 4h15l5 8-5 8H2l5-8z',
+  stadium: 'M8 6h8a6 6 0 0 1 0 12H8A6 6 0 0 1 8 6z',
+  'doc-shape': 'M3 3h18v14c-4-3-7 5-18 1z',
+  predefined: 'M3 5h18v14H3zM6 5v14M18 5v14',
+  manual: 'M3 9l18-5v16H3z',
+  delay: 'M3 5h11a7 7 0 0 1 0 14H3z',
+  'display-shape': 'M7 5h10a5 7 0 0 1 0 14H7l-5-7z',
+  'merge-shape': 'M3 5h18l-9 14z',
+  offpage: 'M4 3h16v13l-8 5-8-5z',
+  'class-shape': 'M3 3h18v18H3zM3 9h18M3 15h18',
+  'note-shape': 'M3 3h13l5 5v13H3zM16 3v5h5',
+  component: 'M7 3h14v18H7zM4 7h6v3H4zM4 14h6v3H4z',
+  'package-shape': 'M3 7h18v14H3zM3 7V3h8v4',
+  mind: 'M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM5 5a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM19 5a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM19 15a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM6.6 8.2l3 2.3M17.4 8.2l-3 2.3M17.4 15.8l-3-2.3',
+  card: 'M3 4h18v16H3zM3 4h4v16M10 9h8M10 13h6M10 17h4',
+  embed: 'M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71',
+  minimap: 'M3 3h18v18H3zM12 8h6v5h-6z',
+  'file-pdf': 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 15h1.5a1.5 1.5 0 0 0 0-3H8v5M13 12v5h1a2.5 2.5 0 0 0 0-5z',
+  youtube: 'M22 8.5a3 3 0 0 0-2.1-2.1C18 6 12 6 12 6s-6 0-7.9.4A3 3 0 0 0 2 8.5 31 31 0 0 0 2 12a31 31 0 0 0 .1 3.5 3 3 0 0 0 2 2.1C6 18 12 18 12 18s6 0 7.9-.4a3 3 0 0 0 2-2.1A31 31 0 0 0 22 12a31 31 0 0 0 0-3.5zM10 15V9l5 3z',
   comment: 'M21 11.5a8.4 8.4 0 0 1-9 8.4 9 9 0 0 1-3.8-.8L3 21l1.9-5.2A8.4 8.4 0 0 1 3 11.5 8.5 8.5 0 0 1 12 3a8.5 8.5 0 0 1 9 8.5z',
   sticker: 'M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9.5L21 14.5V5a2 2 0 0 0-2-2zM14 21v-5a2 2 0 0 1 2-2h5M8.5 9.5h.01M15.5 9.5h.01M8.5 14a4.5 4.5 0 0 0 3.5 1.5',
   group: 'M3 3h7v7H3zM14 14h7v7h-7zM10 6.5h4v4M14 17.5h-4v-4',
@@ -299,3 +323,8 @@ export function iconSVG(name: IconName, size = 14, strokeWidth = 2.2): string {
   const d = P[name] || P.circle
   return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"/></svg>`
 }
+
+/** The path of a stroke icon (24 grid), for icons drawn on a board. */
+export function iconPath(name: string): string { return P[name] || P.circle }
+/** Every icon name, for the board's icon library. */
+export const ICON_NAMES = Object.keys(P)

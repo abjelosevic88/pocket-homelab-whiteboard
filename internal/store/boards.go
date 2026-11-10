@@ -96,7 +96,7 @@ func (s *Store) BoardByExt(ctx context.Context, uid int64, ext string) (*Board, 
 func (s *Store) BoardsFor(ctx context.Context, uid int64) ([]Board, error) {
 	rows, err := s.DB.QueryContext(ctx, `SELECT `+boardCols+`,
 		CASE WHEN b.user_id = ? THEN 'owner' ELSE COALESCE(m.role, '') END,
-		COALESCE(k.starred, 0), COALESCE(k.opened_at, ''),
+		COALESCE(k.starred, 0), COALESCE(k.opened_at, ''), COALESCE(k.folder_id, 0),
 		(SELECT COUNT(1) FROM objects x WHERE x.board_id = b.id AND x.hidden_by = ''),
 		(SELECT COUNT(1) FROM members y WHERE y.board_id = b.id)
 		FROM boards b JOIN users o ON o.id = b.user_id
@@ -115,10 +115,11 @@ func (s *Store) BoardsFor(ctx context.Context, uid int64) ([]Board, error) {
 		var b *Board
 		var opened string
 		var objs, mem int
-		if b, err = scanBoard(rows, &role, &starred, &opened, &objs, &mem); err != nil {
+		var folder int64
+		if b, err = scanBoard(rows, &role, &starred, &opened, &folder, &objs, &mem); err != nil {
 			return nil, err
 		}
-		b.Role, b.Starred, b.OpenedAt, b.Objects, b.Members = role, starred == 1, opened, objs, mem
+		b.Role, b.Starred, b.OpenedAt, b.Objects, b.Members, b.FolderID = role, starred == 1, opened, objs, mem, folder
 		out = append(out, *b)
 	}
 	return out, rows.Err()
@@ -475,7 +476,7 @@ func (s *Store) GetUpload(ctx context.Context, id int64) (*Upload, error) {
 // PurgeUploads removes pictures no object on their board shows any more
 // that are older than before.
 func (s *Store) PurgeUploads(ctx context.Context, before string) (int64, error) {
-	res, err := s.DB.ExecContext(ctx, `DELETE FROM uploads WHERE created_at < ? AND NOT EXISTS (
+	res, err := s.DB.ExecContext(ctx, `DELETE FROM uploads WHERE created_at < ? AND board_id IS NOT NULL AND NOT EXISTS (
 		SELECT 1 FROM objects o WHERE o.board_id = uploads.board_id AND o.kind = 'image' AND json_extract(o.data, '$.upload') = uploads.id)`, before)
 	if err != nil {
 		return 0, err

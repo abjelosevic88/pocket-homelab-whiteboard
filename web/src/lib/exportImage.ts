@@ -1,13 +1,16 @@
 // A picture of a board (or of what is picked): everything drawn again on
 // a canvas the way the page shows it.
 import type { Obj } from './types'
-import { FONT, arrowHead, fitSize, linePath, paper, penPath, rectOf, shapePath, shapeTextBox, stickyBox, tintSolid, union, wrap, type Rect } from './board'
+import { FONT, OUTLINE_ONLY, actorPath, arrowHead, fitSize, linePath, paper, penPath, rectOf, shapeLines, shapePath, shapeTextBox, stickyBox, tintSolid, union, wrap, type Rect } from './board'
+import { iconPath } from '../components/icons'
 
 const PAD = 60
 
 function loadImage(src: string): Promise<HTMLImageElement | null> {
   return new Promise(res => {
     const i = new Image()
+    // pictures from other sites only with their permission (else the canvas cannot be saved)
+    try { if (new URL(src, location.href).origin !== location.origin) i.crossOrigin = 'anonymous' } catch { /* a relative address */ }
     i.onload = () => res(i)
     i.onerror = () => res(null)
     i.src = src
@@ -28,23 +31,33 @@ function drawText(c: CanvasRenderingContext2D, text: string, box: Rect, size: nu
   for (const l of lines) { c.fillText(l, x, y + (lh - size) / 2); y += lh }
 }
 
+type Opts = { scale?: number; background?: string; imageSrc?: (o: Obj) => string; bounds?: Rect; pad?: number; maxPx?: number }
+
 /** Draws the objects into a PNG blob, `scale` pixels per board unit. */
-export async function boardPNG(objs: Obj[], all: Map<string, Obj>, opts: { scale?: number; background?: string; imageSrc?: (o: Obj) => string } = {}): Promise<Blob> {
-  const bounds = union(objs.map(o => rectOf(o, all)).concat(objs.filter(o => o.kind === 'frame').map(f => ({ x: f.x, y: f.y - 30, w: f.w, h: 30 }))))
+export async function boardPNG(objs: Obj[], all: Map<string, Obj>, opts: Opts = {}): Promise<Blob> {
+  const canvas = await boardCanvas(objs, all, opts)
+  return new Promise((res, rej) => canvas.toBlob(b => (b ? res(b) : rej(new Error('could not make the picture'))), 'image/png'))
+}
+
+/** Draws the objects on a canvas (just the part in `bounds`, when given). */
+export async function boardCanvas(objs: Obj[], all: Map<string, Obj>, opts: Opts = {}): Promise<HTMLCanvasElement> {
+  const pad = opts.pad ?? PAD
+  const bounds = opts.bounds || union(objs.map(o => rectOf(o, all)).concat(objs.filter(o => o.kind === 'frame').map(f => ({ x: f.x, y: f.y - 30, w: f.w, h: 30 }))))
   if (!bounds) throw new Error('there is nothing to draw')
   let scale = opts.scale || 2
-  const maxPx = 12000
-  scale = Math.min(scale, maxPx / (bounds.w + PAD * 2), maxPx / (bounds.h + PAD * 2))
+  const maxPx = opts.maxPx || 12000
+  scale = Math.min(scale, maxPx / (bounds.w + pad * 2), maxPx / (bounds.h + pad * 2))
   const canvas = document.createElement('canvas')
-  canvas.width = Math.ceil((bounds.w + PAD * 2) * scale)
-  canvas.height = Math.ceil((bounds.h + PAD * 2) * scale)
+  canvas.width = Math.ceil((bounds.w + pad * 2) * scale)
+  canvas.height = Math.ceil((bounds.h + pad * 2) * scale)
   const c = canvas.getContext('2d')!
   c.fillStyle = opts.background || '#ffffff'
   c.fillRect(0, 0, canvas.width, canvas.height)
   c.scale(scale, scale)
-  c.translate(PAD - bounds.x, PAD - bounds.y)
+  c.translate(pad - bounds.x, pad - bounds.y)
+  if (opts.bounds) { c.beginPath(); c.rect(bounds.x, bounds.y, bounds.w, bounds.h); c.clip() }
   const imgs = new Map<string, HTMLImageElement | null>()
-  await Promise.all(objs.filter(o => o.kind === 'image').map(async o => { imgs.set(o.id, await loadImage(opts.imageSrc ? opts.imageSrc(o) : o.data.src || '')) }))
+  await Promise.all(objs.filter(o => o.kind === 'image' || (o.kind === 'embed' && o.data.image)).map(async o => { imgs.set(o.id, await loadImage(o.kind === 'image' ? (opts.imageSrc ? opts.imageSrc(o) : o.data.src || '') : o.data.image!)) }))
   const sorted = [...objs].sort((a, b) => a.z - b.z)
   for (const o of sorted) {
     const d = o.data
@@ -89,11 +102,20 @@ export async function boardPNG(objs: Obj[], all: Map<string, Obj>, opts: { scale
       case 'shape': {
         const p = paper(d.fill || 'white')
         c.translate(o.x, o.y)
-        const path = new Path2D(shapePath(d.shape, o.w, o.h))
-        if (d.fill !== 'none') { c.fillStyle = p.bg; c.fill(path) }
         c.strokeStyle = d.stroke || '#3d434c'
         c.lineWidth = d.width || 2
-        c.stroke(path)
+        if (d.dash) c.setLineDash([(d.width || 2) * 4, (d.width || 2) * 3])
+        if (d.shape && OUTLINE_ONLY.has(d.shape)) {
+          c.lineCap = 'round'
+          c.stroke(new Path2D(actorPath(o.w, o.h)))
+        } else {
+          const path = new Path2D(shapePath(d.shape, o.w, o.h))
+          if (d.fill !== 'none') { c.fillStyle = p.bg; c.fill(path) }
+          c.stroke(path)
+          const extra = shapeLines(d.shape, o.w, o.h)
+          if (extra) c.stroke(new Path2D(extra))
+        }
+        c.setLineDash([])
         const tb = shapeTextBox(d.shape, o.w, o.h)
         if (d.text) drawText(c, d.text, tb, d.size || fitSize(d.text, tb.w, tb.h, 28, 8), d.fill === 'none' ? '#1d2024' : p.ink, { bold: d.bold, align: d.align || 'center' })
         break
@@ -139,6 +161,45 @@ export async function boardPNG(objs: Obj[], all: Map<string, Obj>, opts: { scale
         c.fillText(d.emoji || '⭐', o.x + o.w / 2, o.y + o.h / 2 + o.h * 0.04)
         break
       }
+      case 'icon': {
+        c.translate(o.x, o.y)
+        c.scale(o.w / 24, o.h / 24)
+        c.strokeStyle = d.color || '#1d2024'
+        c.lineWidth = 1.75
+        c.lineCap = 'round'
+        c.lineJoin = 'round'
+        c.stroke(new Path2D(iconPath(d.icon || 'star')))
+        break
+      }
+      case 'card': {
+        c.shadowColor = 'rgba(0,0,0,.14)'; c.shadowBlur = 8; c.shadowOffsetY = 2
+        c.fillStyle = '#ffffff'
+        c.beginPath(); c.roundRect(o.x, o.y, o.w, o.h, 8); c.fill()
+        c.shadowColor = 'transparent'
+        c.fillStyle = paper(d.color || 'blue').bg
+        c.beginPath(); c.roundRect(o.x, o.y, 8, o.h, [8, 0, 0, 8]); c.fill()
+        drawText(c, d.text || 'Card', { x: o.x + 22, y: o.y + 16, w: o.w - 40, h: o.h - 60 }, 18, d.done ? '#8a9099' : '#1d2024', { bold: true, align: 'left', middle: false })
+        c.font = `500 13px ${FONT}`; c.fillStyle = '#5b6472'; c.textAlign = 'left'; c.textBaseline = 'alphabetic'
+        c.fillText([d.due ? `Due ${d.due}` : '', d.assignee?.name || '', d.done ? 'Done' : ''].filter(Boolean).join('  ·  '), o.x + 22, o.y + o.h - 16)
+        break
+      }
+      case 'embed': {
+        c.fillStyle = '#ffffff'; c.strokeStyle = '#d6dae0'; c.lineWidth = 1.5
+        c.beginPath(); c.roundRect(o.x, o.y, o.w, o.h, 10); c.fill(); c.stroke()
+        const img = imgs.get(o.id)
+        const tall = d.embed === 'youtube'
+        if (img) {
+          c.save(); c.beginPath(); c.roundRect(o.x, o.y, tall ? o.w : Math.min(o.h, o.w * 0.35), tall ? o.h : o.h, 10); c.clip()
+          c.drawImage(img, o.x, o.y, tall ? o.w : Math.min(o.h, o.w * 0.35), o.h); c.restore()
+        }
+        if (!tall) {
+          const tx = o.x + (img ? Math.min(o.h, o.w * 0.35) : 0) + 14
+          drawText(c, d.title || d.name || d.url || '', { x: tx, y: o.y + 14, w: o.x + o.w - tx - 14, h: o.h * 0.5 }, 16, '#1d2024', { bold: true, align: 'left', middle: false })
+          c.font = `400 12px ${FONT}`; c.fillStyle = '#6b7280'; c.textAlign = 'left'; c.textBaseline = 'alphabetic'
+          c.fillText(d.site || d.mime || '', tx, o.y + o.h - 14)
+        }
+        break
+      }
       case 'image': {
         const img = imgs.get(o.id)
         if (img) c.drawImage(img, o.x, o.y, o.w, o.h)
@@ -148,5 +209,5 @@ export async function boardPNG(objs: Obj[], all: Map<string, Obj>, opts: { scale
     }
     c.restore()
   }
-  return new Promise((res, rej) => canvas.toBlob(b => (b ? res(b) : rej(new Error('could not make the picture'))), 'image/png'))
+  return canvas
 }

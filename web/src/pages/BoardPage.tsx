@@ -8,21 +8,22 @@ import { useApp } from '../lib/app-context'
 import { useAppState, DataProvider } from '../lib/data'
 import type { Board, BoardDoc, Comment, Member, Obj, ObjData, Op, Person, PrivateCount, Reaction, ShapeForm, View, Votes } from '../lib/types'
 import {
-  INKS, STICKY, STICKY_KEYS, clearFit, SHAPES, STICKY_SIZE, center, framesInOrder, frameOf, inside, linePath, nearLine, newID, overlaps, paper, rectOf, textOf, union, withData,
+  INKS, STICKY, STICKY_KEYS, clearFit, tint, SHAPES, STICKY_SIZE, center, framesInOrder, frameOf, inside, linePath, nearLine, newID, overlaps, paper, rectOf, textOf, union, withData,
   type Pt, type Rect,
 } from '../lib/board'
-import { boardPNG } from '../lib/exportImage'
-import { uploadPicture } from '../lib/upload'
+import { boardCanvas, boardPNG } from '../lib/exportImage'
+import { uploadDoc, uploadPicture } from '../lib/upload'
+import { pagesToPDF } from '../lib/pdf'
 import { ObjectView, VoteBadge, tagColour, type EditResult } from '../components/board/ObjectView'
 import { EmojiGrid, FindBar, FloatLayer, FormatBar, REACTIONS, STICKERS, TEXT_SIZES, TagPicker, type Float } from '../components/board/Extras'
 import { CommentsPanel, NewThread, ThreadCard, pinAt, threadsOf, type MentionPerson } from '../components/board/Comments'
 import { HistoryPanel } from '../components/board/History'
 import { AIPanel, ChatPicker, Countdown, FramesPanel, SharePanel, TimerPanel, VotePanel, chime } from '../components/board/Panels'
-import { Icon } from '../components/icons'
+import { ICON_NAMES, Icon } from '../components/icons'
 import { AskButton } from '../components/AskButton'
 import { Avatar, Confirm, ContextMenu, Loading, type MenuItem, MenuButton, Modal, Segmented, copyText, errMsg, useIsMobile, useToast } from '../components/ui'
 
-type Tool = 'select' | 'hand' | 'sticky' | 'text' | 'shape' | 'line' | 'pen' | 'eraser' | 'frame' | 'comment' | 'sticker'
+type Tool = 'select' | 'hand' | 'sticky' | 'text' | 'shape' | 'line' | 'pen' | 'eraser' | 'frame' | 'comment' | 'sticker' | 'mind' | 'card' | 'embed' | 'icon'
 interface Cam { x: number; y: number; z: number }
 type State = [string, Obj | null][]
 
@@ -135,7 +136,8 @@ type Drag =
   | { mode: 'plus'; dir: string; sx: number; sy: number }
 
 interface Cursor { x: number; y: number; name: string; colour: string; sel: string[]; at: number; view?: View; voter?: string }
-const CONNECTABLE = new Set(['sticky', 'shape', 'text', 'image', 'sticker'])
+const MIND_FILLS = ['violet', 'light-blue', 'light-green', 'light-pink', 'orange', 'cyan', 'yellow', 'light-yellow']
+const CONNECTABLE = new Set(['sticky', 'shape', 'text', 'image', 'sticker', 'card', 'embed', 'icon'])
 
 function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; reload: () => Promise<BoardDoc> }) {
   const { toast } = useToast()
@@ -201,6 +203,11 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
   const followRef = useRef<string | null>(null)
   followRef.current = following
   const [sticker, setSticker] = useState('⭐')
+  const [iconPick, setIconPick] = useState('lightbulb')
+  const [iconQ, setIconQ] = useState('')
+  const [shapeTab, setShapeTab] = useState<'Basic' | 'Flowchart' | 'UML' | 'Icons'>('Basic')
+  const [embedAt, setEmbedAt] = useState<Pt | null>(null)
+  const [showMap, setShowMap] = useState(() => localStorage.getItem('pwb-minimap') !== '0')
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; p: Pt; on: string | null } | null>(null)
   const [emojiPick, setEmojiPick] = useState<{ x: number; y: number; title: string; list: string[]; cols: number; current: string[]; pick: (e: string) => void } | null>(null)
   const pressT = useRef(0)
@@ -590,6 +597,9 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
   const movingSet = (ids: string[]): string[] => {
     const all = objsRef.current
     const out = new Set(ids.filter(id => !all.get(id)?.data.locked))
+    // a mind-map node carries what grows from it
+    let grew = true
+    while (grew) { grew = false; for (const o of all.values()) if (o.data.mind?.parent && out.has(o.data.mind.parent) && !out.has(o.id) && !o.data.locked) { out.add(o.id); grew = true } }
     for (const id of [...out]) {
       const f = all.get(id)
       if (f?.kind !== 'frame') continue
@@ -647,9 +657,14 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
       dragRef.current = { mode: 'pinch', d0: Math.hypot(a.x - b.x, a.y - b.y), m0: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, cam: camRef.current }
       return
     }
-    if (editingRef.current) { (document.activeElement as HTMLElement | null)?.blur?.() }
+    if (editingRef.current) {
+      const eo = objsRef.current.get(editingRef.current)
+      if (eo?.kind === 'embed') setEditing(null)
+      else (document.activeElement as HTMLElement | null)?.blur?.()
+    }
     const t = toolRef.current
     const hit = hitAt(e)
+    downHit.current = hit.id
     const touch = e.pointerType === 'touch'
     setCtxMenu(null)
     window.clearTimeout(pressT.current)
@@ -751,9 +766,115 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
         const o = make('sticker', { x: snapV(p.x) - 60, y: snapV(p.y) - 60, w: 120, h: 120 }, { emoji: sticker })
         commit([o]); setSel(new Set([o.id])); setTool('select'); return
       }
+      case 'icon': {
+        const o = make('icon', { x: snapV(p.x) - 48, y: snapV(p.y) - 48, w: 96, h: 96 }, { icon: iconPick, color: '#1d2024' })
+        commit([o]); setSel(new Set([o.id])); setTool('select'); return
+      }
+      case 'mind': {
+        const id = newID()
+        const o: Obj = { ...make('shape', { x: snapV(p.x) - 120, y: snapV(p.y) - 40, w: 240, h: 80 }, { shape: 'round', text: '', fill: MIND_FILLS[0], size: 24, bold: true }), id }
+        o.data.mind = { root: id, depth: 0 }
+        commit([o]); setSel(new Set([o.id])); setEditing(o.id); setTool('select'); return
+      }
+      case 'card': {
+        const o = make('card', { x: snapV(p.x) - 140, y: snapV(p.y) - 70, w: 280, h: 140 }, { text: '', color: 'blue' })
+        commit([o]); setSel(new Set([o.id])); setEditing(o.id); setTool('select'); return
+      }
+      case 'embed': setEmbedAt(p); setTool('select'); return
     }
   }
   const linkRef = useRef<string | null>(null)
+  // what was under the pointer when it went down (the board holds the pointer, so the
+  // release always lands on the board itself)
+  const downHit = useRef<string | null>(null)
+
+  // ---- cards (kept in step with Pocket Tasks when linked)
+  const cardSyncT = useRef(new Map<string, number>())
+  const syncCard = async (id: string, quiet = true) => {
+    try {
+      const r = await call<{ text?: string; url?: string }>(conn, 'POST', `/cards/${id}/task`)
+      if (!quiet) toast(r.text || 'Done', 'ok', r.url ? { label: 'Open', run: () => window.open(r.url, '_blank', 'noopener') } : undefined)
+    } catch (e) { if (!quiet) toast(errMsg(e), 'err') }
+  }
+  const setCards = (d: Partial<ObjData>) => {
+    const list = selected().filter(o => o.kind === 'card')
+    if (!list.length) return
+    commit(list.map(o => withData(o, d)))
+    for (const o of list) if (o.data.task) {
+      window.clearTimeout(cardSyncT.current.get(o.id))
+      cardSyncT.current.set(o.id, window.setTimeout(() => syncCard(o.id), 900))
+    }
+  }
+  // bring changes made in Pocket Tasks onto the cards
+  useEffect(() => {
+    if (!canEdit || guest) return
+    const pull = () => { if ([...objsRef.current.values()].some(o => o.kind === 'card' && o.data.task)) call(conn, 'POST', '/cards/pull').catch(() => {}) }
+    const first = window.setTimeout(pull, 1500)
+    const t = window.setInterval(() => { if (document.visibilityState === 'visible') pull() }, 120000)
+    return () => { window.clearTimeout(first); window.clearInterval(t) }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ---- embeds: links with a preview, YouTube, PDFs and documents
+  const YT = /^(?:https?:\/\/)?(?:www\.|m\.)?(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/
+  const createEmbed = async (raw: string, at: Pt) => {
+    let url = raw.trim()
+    if (!/^https?:\/\//i.test(url)) url = 'https://' + url
+    try { new URL(url) } catch { toast('That is not a web address', 'err'); return }
+    const yt = YT.exec(url)
+    const size = yt ? { w: 480, h: 270 } : { w: 420, h: 130 }
+    const o = make('embed', { x: at.x - size.w / 2, y: at.y - size.h / 2, ...size }, yt ? { embed: 'youtube', url, video: yt[1], image: `https://i.ytimg.com/vi/${yt[1]}/hqdefault.jpg`, site: 'YouTube', title: 'YouTube' } : { embed: 'link', url, title: url, site: new URL(url).hostname.replace(/^www\./, '') })
+    commit([o]); setSel(new Set([o.id]))
+    if (guest) return
+    try {
+      const r = await api.get<{ preview: { title: string; description: string; image: string; site: string; icon: string } }>(`${V1}/unfurl?url=${encodeURIComponent(url)}`)
+      const cur = objsRef.current.get(o.id)
+      if (!cur) return
+      const p = r.preview
+      const n = withData(cur, { title: p.title || cur.data.title, description: p.description || undefined, image: p.image || cur.data.image, site: p.site || cur.data.site, favicon: p.icon || undefined })
+      apply([n])
+      const e = undoStack.current[undoStack.current.length - 1]
+      if (e) e.after = e.after.map(([id, x]) => [id, id === o.id ? n : x])
+    } catch { /* a link without a preview is still a link */ }
+  }
+  const addFile = async (file: File, at: Pt) => {
+    if (file.type.startsWith('image/')) { addImage(file, at); return }
+    try {
+      const r = await uploadDoc(file, conn.uploadURL, conn.headers)
+      const pdf = r.upload.mime === 'application/pdf'
+      const size = pdf ? { w: 380, h: 480 } : { w: 340, h: 110 }
+      const o = make('embed', { x: at.x - size.w / 2, y: at.y - size.h / 2, ...size }, { embed: pdf ? 'pdf' : 'file', upload: r.upload.id, src: r.url, name: r.upload.name, mime: r.upload.mime, bytes: r.upload.bytes })
+      commit([o]); setSel(new Set([o.id]))
+    } catch (e) { toast(errMsg(e), 'err') }
+  }
+  const docInput = useRef<HTMLInputElement>(null)
+
+  // ---- PDF: a page for each frame (or the whole board)
+  const savePDF = async () => {
+    try {
+      const all = objsRef.current
+      const list = [...all.values()]
+      const frs = framesInOrder(list)
+      const pages: HTMLCanvasElement[] = []
+      if (frs.length) {
+        for (const f of frs) {
+          const inside = list.filter(o => overlaps(rectOf(o, all), f))
+          pages.push(await boardCanvas(inside, all, { bounds: { x: f.x, y: f.y, w: f.w, h: f.h }, pad: 0, scale: 2, maxPx: 3200, imageSrc: conn.imgSrc, background: '#ffffff' }))
+        }
+      } else pages.push(await boardCanvas(list, all, { scale: 2, maxPx: 3200, imageSrc: conn.imgSrc, background: '#ffffff' }))
+      const blob = await pagesToPDF(pages, board.title)
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = `${board.title.replace(/[\\/:*?"<>|]/g, '-')}.pdf`
+      a.click()
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000)
+      toast(frs.length ? `PDF with ${frs.length} ${frs.length === 1 ? 'page' : 'pages'}, one per frame` : 'PDF of the whole board')
+    } catch (e) { toast(errMsg(e), 'err') }
+  }
+  const saveTemplate = async () => {
+    const title = window.prompt('Name the template', board.title)?.trim()
+    if (!title) return
+    try { await call(conn, 'POST', '/template', { title }); toast('Kept as a template — it is under “Start from” when you make a board') } catch (e) { toast(errMsg(e), 'err') }
+  }
   /** Starts an arrow from the middle of one of a thing's sides. */
   function connectFrom(id: string, side: string) {
     const o = objsRef.current.get(id)
@@ -994,7 +1115,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
     if (d?.mode === 'pinch') { if (pointers.current.size < 2) dragRef.current = null; return }
     // a double tap / double click
     const now = Date.now()
-    const hit = hitAt(e)
+    const hit = { id: downHit.current }
     const tap = d && ((d.mode === 'pan' && !d.moved) || (d.mode === 'move' && !d.moved) || (d.mode === 'marquee' && !marquee))
     finishDrag()
     if (!tap || toolRef.current !== 'select') return
@@ -1008,8 +1129,16 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
   const onDouble = (id: string | null, p: Pt) => {
     if (!canEdit || votes.open) return
     const o = id ? objsRef.current.get(id) : undefined
-    if (o && !o.data.locked && ['sticky', 'text', 'shape', 'frame', 'line'].includes(o.kind)) { setSel(new Set([o.id])); setEditing(o.id); return }
+    if (o && !o.data.locked && ['sticky', 'text', 'shape', 'frame', 'line', 'card'].includes(o.kind)) { setSel(new Set([o.id])); setEditing(o.id); return }
+    if (o?.kind === 'embed') { openEmbed(o); return }
     if (!o) addSticky({ x: snapV(p.x), y: snapV(p.y) })
+  }
+  /** An embed comes alive on the board (video, PDF) or opens in a new tab (links, files). */
+  function openEmbed(o: Obj) {
+    const k = o.data.embed
+    if (k === 'youtube' || k === 'pdf') { setSel(new Set([o.id])); setEditing(o.id); return }
+    const href = k === 'file' ? conn.imgSrc(o) : o.data.url
+    if (href) window.open(href, '_blank', 'noopener')
   }
 
   // the + beside one selected note: another one next to it (shapes: joined by a line)
@@ -1031,8 +1160,8 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
   }
 
   // ---- editing text
-  const onEditDone = useCallback((id: string, r: EditResult, how: 'done' | 'tab' | 'cancel') => H.current.editDone(id, r, how), [])
-  const editDone = (id: string, r: EditResult, how: 'done' | 'tab' | 'cancel') => {
+  const onEditDone = useCallback((id: string, r: EditResult, how: 'done' | 'tab' | 'cancel' | 'enter') => H.current.editDone(id, r, how), [])
+  const editDone = (id: string, r: EditResult, how: 'done' | 'tab' | 'cancel' | 'enter') => {
     if (editingRef.current === id) setEditing(null)
     const o = objsRef.current.get(id)
     if (!o) return
@@ -1045,6 +1174,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
       if (o.kind === 'text' && h) n.h = Math.max(20, h)
       commit([n])
     }
+    if (o.data.mind && (how === 'tab' || how === 'enter')) { mindAdd(o.id, how === 'tab' ? 'child' : 'sibling'); return }
     if (how === 'tab' && o.kind === 'sticky') {
       const n: Obj = { ...o, id: newID(), x: o.x + o.w + 24, z: zs().hi + 1, data: { ...o.data, text: '', html: undefined }, author: me.name }
       commit([n]); setSel(new Set([n.id])); setEditing(n.id)
@@ -1064,7 +1194,67 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
 
   // ---- selection actions
   const selected = () => [...selRef.current].map(id => objsRef.current.get(id)).filter(Boolean) as Obj[]
-  const del = () => { const ids = [...selRef.current].filter(id => !objsRef.current.get(id)?.data.locked); if (!ids.length) return; commit([], ids); setSel(new Set()) }
+  const del = () => {
+    const ids = new Set([...selRef.current].filter(id => !objsRef.current.get(id)?.data.locked))
+    // a mind-map branch goes with everything that grows from it
+    let grew = true
+    while (grew) { grew = false; for (const o of objsRef.current.values()) if (o.data.mind?.parent && ids.has(o.data.mind.parent) && !ids.has(o.id)) { ids.add(o.id); grew = true } }
+    if (!ids.size) return
+    commit([], [...ids]); setSel(new Set())
+  }
+  // ---- mind maps: Tab adds a branch, Enter one beside it; the map lays itself out
+  function mindLayout(rootId: string, all: Map<string, Obj>): Obj[] {
+    const nodes = [...all.values()].filter(o => o.kind === 'shape' && o.data.mind?.root === rootId)
+    const root = nodes.find(o => o.id === rootId)
+    if (!root) return []
+    const kids = new Map<string, Obj[]>()
+    for (const n of nodes) if (n.data.mind?.parent) kids.set(n.data.mind.parent, [...(kids.get(n.data.mind.parent) || []), n])
+    for (const l of kids.values()) l.sort((a, b) => a.y - b.y || (a.created_at || '').localeCompare(b.created_at || ''))
+    const gapY = 22, gapX = 90
+    const hOf = new Map<string, number>()
+    const height = (n: Obj): number => {
+      const c = kids.get(n.id) || []
+      const v = c.length ? Math.max(n.h, c.reduce((t, k) => t + height(k), 0) + gapY * (c.length - 1)) : n.h
+      hOf.set(n.id, v)
+      return v
+    }
+    height(root)
+    const out: Obj[] = []
+    const place = (n: Obj, x: number, cy: number) => {
+      const y = cy - n.h / 2
+      if (n.id !== rootId && (Math.abs(n.x - x) > 0.5 || Math.abs(n.y - y) > 0.5)) out.push({ ...n, x, y })
+      const c = kids.get(n.id) || []
+      const total = c.reduce((t, k) => t + (hOf.get(k.id) || k.h), 0) + gapY * Math.max(0, c.length - 1)
+      let top = cy - total / 2
+      const nx = (n.id === rootId ? n.x : x) + n.w + gapX
+      for (const k of c) { const kh = hOf.get(k.id) || k.h; place(k, nx, top + kh / 2); top += kh + gapY }
+    }
+    place(root, root.x, root.y + root.h / 2)
+    return out
+  }
+  function mindAdd(id: string, how: 'child' | 'sibling') {
+    const all = objsRef.current
+    const o = all.get(id)
+    if (!o?.data.mind) return
+    const m = o.data.mind
+    const parent = how === 'child' || !m.parent ? o : all.get(m.parent)
+    if (!parent?.data.mind) return
+    const depth = (parent.data.mind.depth || 0) + 1
+    const siblings = [...all.values()].filter(x => x.data.mind?.parent === parent.id)
+    const fill = depth === 1 ? MIND_FILLS[1 + (siblings.length % (MIND_FILLS.length - 1))] : (parent.data.fill || 'white')
+    const nid = newID()
+    const below = siblings.length ? Math.max(...siblings.map(x => x.y + x.h)) + 30 : parent.y
+    const node: Obj = { ...make('shape', { x: parent.x + parent.w + 90, y: below, w: depth === 1 ? 200 : 170, h: depth === 1 ? 64 : 52 }, { shape: 'round', text: '', fill, size: depth === 1 ? 20 : 17, bold: depth === 1 || undefined }), id: nid }
+    node.data.mind = { root: m.root, parent: parent.id, depth }
+    const c1 = center(parent), c2 = center(node)
+    const ln = make('line', { x: c1.x, y: c1.y, w: 0, h: 0 }, { x1: c1.x, y1: c1.y, x2: c2.x, y2: c2.y, from: parent.id, to: nid, end: 'none', curve: 'curve', color: '#8a93a3', width: 2.5 })
+    ln.z = Math.min(parent.z, zs().lo) - 1
+    const next = new Map(all); next.set(nid, node)
+    const moved = mindLayout(m.root, next)
+    const placed = moved.find(x => x.id === nid) || node
+    commit([placed, ln, ...moved.filter(x => x.id !== nid)])
+    setSel(new Set([nid])); setEditing(nid)
+  }
   const duplicate = (list = selected(), off = 30) => {
     if (!list.length) return
     const map = new Map<string, string>()
@@ -1088,6 +1278,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
         case 'sticky': return withData(o, { color: c })
         case 'shape': return withData(o, { fill: c })
         case 'frame': return withData(o, { fill: c })
+        case 'card': return withData(o, { color: c })
         default: return o
       }
     }).filter((o, i) => o !== selected()[i])
@@ -1227,6 +1418,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
         try { pasteObjs(JSON.parse(text.slice(18)) as Obj[], at) } catch { /* not ours after all */ }
         return
       }
+      if (/^https?:\/\/\S+$/i.test(text.trim())) { createEmbed(text.trim(), at); return }
       pasteText(text, at)
     }
     window.addEventListener('copy', copy)
@@ -1262,7 +1454,12 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
       if (e.shiftKey && (k === '@' || e.code === 'Digit2')) { e.preventDefault(); const r = union(selected().map(o => rectOf(o, objsRef.current))); if (r) animateTo(camFor(r, 120, 2)); return }
       if (k === 'escape') { setSel(new Set()); setTool('select'); setPanel(null); setFlyout(null); return }
       if ((k === 'delete' || k === 'backspace') && canEdit) { e.preventDefault(); del(); return }
-      if (k === 'enter' && selRef.current.size === 1 && canEdit) { const [id] = [...selRef.current]; const o = objsRef.current.get(id); if (o && ['sticky', 'text', 'shape', 'frame', 'line'].includes(o.kind)) { e.preventDefault(); setEditing(id) } return }
+      if ((k === 'tab' || k === 'enter') && selRef.current.size === 1 && canEdit) {
+        const [id] = [...selRef.current]
+        const o = objsRef.current.get(id)
+        if (o?.data.mind) { e.preventDefault(); mindAdd(id, k === 'tab' ? 'child' : 'sibling'); return }
+      }
+      if (k === 'enter' && selRef.current.size === 1 && canEdit) { const [id] = [...selRef.current]; const o = objsRef.current.get(id); if (o && ['sticky', 'text', 'shape', 'frame', 'line', 'card'].includes(o.kind)) { e.preventDefault(); setEditing(id) } return }
       if (k.startsWith('arrow') && selRef.current.size && canEdit) {
         e.preventDefault()
         const s = e.shiftKey ? 10 : 1
@@ -1274,7 +1471,8 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
       if (k === '[' && canEdit) { order(false); return }
       if (k === '=' || k === '+') { zoomBy(1.25); return }
       if (k === '-') { zoomBy(0.8); return }
-      const tools: Record<string, Tool> = { v: 'select', h: 'hand', n: 'sticky', t: 'text', s: 'shape', r: 'shape', l: 'line', p: 'pen', e: 'eraser', f: 'frame', c: 'comment', k: 'sticker' }
+      const tools: Record<string, Tool> = { v: 'select', h: 'hand', n: 'sticky', t: 'text', s: 'shape', r: 'shape', l: 'line', p: 'pen', e: 'eraser', f: 'frame', c: 'comment', k: 'sticker', m: 'mind', d: 'card', u: 'embed' }
+      if (k === 'u' && canEdit) { setEmbedAt(viewCenter()); return }
       if (k === 'c' && guest && !canEdit) return
       if (tools[k] && (canEdit || k === 'v' || k === 'h' || k === 'c')) { setTool(tools[k]); setFlyout(['sticker', 'shape', 'line', 'pen'].includes(tools[k]) ? tools[k] : null); return }
       if (k === 'i' && canEdit) { pickImage(); return }
@@ -1464,6 +1662,8 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
     ...(!guest ? [{ label: 'Bring everyone to me', icon: 'magnet', onSelect: summon }, { label: 'History and deleted things', icon: 'history', onSelect: () => setPanel('history') }] : []),
     'sep',
     { label: sel.size ? 'Download a picture of what is picked' : 'Download a picture of the board', icon: 'image', onSelect: () => savePicture() },
+    { label: 'Download as PDF (a page per frame)', icon: 'file-pdf', onSelect: savePDF },
+    ...(!guest ? [{ label: 'Keep as a template', icon: 'bookmark', onSelect: saveTemplate }] : []),
     ...(!guest ? [
       { label: 'Keep a picture in Pocket Files', icon: 'download', disabled: !filesOK, hint: needs(filesOK, 'Files') ? 'off' : undefined, onSelect: () => savePicture(true) },
       { label: 'Keep the notes in Pocket Notes', icon: 'note', disabled: !notesOK, hint: needs(notesOK, 'Notes') ? 'off' : undefined, onSelect: () => toApp('/to-notes') },
@@ -1633,7 +1833,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
         onPointerLeave={() => { if (!dragRef.current) sendCursor(true) }}
         onContextMenu={e => { e.preventDefault(); if (!e.shiftKey) openMenuAt(e.clientX, e.clientY, e.target) }}
         onDragOver={e => { if (canEdit && e.dataTransfer.types.includes('Files')) e.preventDefault() }}
-        onDrop={e => { if (!canEdit) return; e.preventDefault(); const p = toWorld(e.clientX, e.clientY); [...e.dataTransfer.files].filter(f => f.type.startsWith('image/')).forEach((f, i) => addImage(f, { x: p.x + i * 40, y: p.y + i * 40 })) }}>
+        onDrop={e => { if (!canEdit) return; e.preventDefault(); const p = toWorld(e.clientX, e.clientY); const files = [...e.dataTransfer.files]; if (!files.length) { const u = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain'); if (/^https?:\/\//.test(u)) createEmbed(u.split('\n')[0], p); return } files.forEach((f, i) => addFile(f, { x: p.x + i * 40, y: p.y + i * 40 })) }}>
         <div className="wb-world" style={{ transform: `translate(${cam.x}px, ${cam.y}px) scale(${cam.z})` }}>
           {sorted.map(o => {
             if (o.kind !== 'line' && !sel.has(o.id) && editing !== o.id && !overlaps(visible, o)) return null
@@ -1734,6 +1934,9 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
             <ToolBtn icon="pen" label="Pen" k="P" on={tool === 'pen'} onClick={() => { setTool('pen'); setFlyout(flyout === 'pen' ? null : 'pen') }} more dot={pen.color} />
             <ToolBtn icon="eraser" label="Eraser (pen lines)" k="E" on={tool === 'eraser'} onClick={() => setTool('eraser')} />
             <ToolBtn icon="frame" label="Frame" k="F" on={tool === 'frame'} onClick={() => setTool('frame')} />
+            <ToolBtn icon="mind" label="Mind map (Tab: branch, Enter: next to it)" k="M" on={tool === 'mind'} onClick={() => setTool('mind')} />
+            <ToolBtn icon="card" label="Card" k="D" on={tool === 'card'} onClick={() => setTool('card')} />
+            <ToolBtn icon="embed" label="Link, video or file" k="U" on={tool === 'embed'} onClick={() => { setEmbedAt(viewCenter()); setTool('select') }} />
             <ToolBtn icon="image" label="Picture" k="I" on={false} onClick={pickImage} />
             <ToolBtn icon="sticker" label="Sticker" k="K" on={tool === 'sticker'} onClick={() => { setTool('sticker'); setFlyout(flyout === 'sticker' ? null : 'sticker') }} more />
             <span className="wb-tools-sep" />
@@ -1747,8 +1950,21 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
             </div>
           )}
           {flyout === 'shape' && (
-            <div className="wb-fly wb-fly-grid">
-              {SHAPES.map(s => <button key={s.form} type="button" className={`btn ghost icon-only ${s.form === shapeForm ? 'on' : ''}`} title={s.name} aria-label={s.name} onClick={() => { setShapeForm(s.form); setFlyout(null) }}><Icon name={s.icon} size={18} /></button>)}
+            <div className="wb-fly wb-fly-shapes">
+              <Segmented size="sm" value={shapeTab} onChange={setShapeTab} options={(['Basic', 'Flowchart', 'UML', 'Icons'] as const).map(v => ({ value: v, label: v }))} />
+              {shapeTab !== 'Icons' ? (
+                <div className="wb-fly-grid">
+                  {SHAPES.filter(x => x.group === shapeTab).map((x, i) => <button key={x.group + i} type="button" className={`btn ghost icon-only ${x.form === shapeForm && tool === 'shape' ? 'on' : ''}`} title={x.name} aria-label={x.name} onClick={() => { setShapeForm(x.form); setTool('shape'); setFlyout(null) }}><Icon name={x.icon} size={18} /></button>)}
+                </div>
+              ) : (
+                <>
+                  <input value={iconQ} onChange={e => setIconQ(e.target.value)} placeholder="Find an icon" aria-label="Find an icon" onKeyDown={e => e.stopPropagation()} />
+                  <div className="wb-fly-grid wb-icon-grid">
+                    {ICON_NAMES.filter(n => !iconQ || n.includes(iconQ.toLowerCase())).slice(0, 96).map(n => <button key={n} type="button" className={`btn ghost icon-only ${n === iconPick && tool === 'icon' ? 'on' : ''}`} title={n} aria-label={n} onClick={() => { setIconPick(n); setTool('icon'); setFlyout(null) }}><Icon name={n} size={18} /></button>)}
+                  </div>
+                </>
+              )}
+              <p className="muted small">Pick one, then click or drag on the board.</p>
             </div>
           )}
           {flyout === 'line' && (
@@ -1778,6 +1994,8 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
           )}
         </nav>
       )}
+      <input ref={docInput} type="file" hidden onChange={e => { const at = embedAt || viewCenter(); [...(e.target.files || [])].forEach((f, i) => addFile(f, { x: at.x + i * 40, y: at.y + i * 40 })); e.target.value = ''; setEmbedAt(null) }} />
+      {embedAt && <EmbedDialog onClose={() => setEmbedAt(null)} onLink={u => { const at = embedAt; setEmbedAt(null); createEmbed(u, at) }} onFile={() => docInput.current?.click()} />}
       <input ref={fileInput} type="file" accept="image/*" multiple hidden onChange={e => { const c = viewCenter(); [...(e.target.files || [])].forEach((f, i) => addImage(f, { x: c.x + i * 40, y: c.y + i * 40 })); e.target.value = '' }} />
 
       {/* ---- what is picked */}
@@ -1790,7 +2008,9 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
           onEdit={() => setEditing(selList[0].id)}
           onGroup={group} onUngroup={ungroup} allTags={allTags} onTag={toggleTag} onByTag={groupByTag}
           onReact={e => react(selList[0].id, e)} myReactions={(reactions[selList[0].id] || []).filter(r => r.voters.includes(me.voter)).map(r => r.emoji)}
-          onComment={() => { const o = selList[0]; setOpenThread(null); setNewThread({ object_id: o.kind === 'line' ? '' : o.id, x: Math.round(o.x + o.w), y: Math.round(o.y) }) }} />
+          onComment={() => { const o = selList[0]; setOpenThread(null); setNewThread({ object_id: o.kind === 'line' ? '' : o.id, x: Math.round(o.x + o.w), y: Math.round(o.y) }) }}
+          people={mentionPeople} onCard={setCards} onCardTask={tasksOK ? () => { for (const o of selList.filter(x => x.kind === 'card')) syncCard(o.id, false) } : undefined}
+          onOpenEmbed={() => openEmbed(selList[0])} />
       )}
 
       {/* ---- zoom */}
@@ -1801,7 +2021,11 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
           <button type="button" className="wb-zoom-val" onClick={() => fitAll()} title="Fit everything (⇧1)">{Math.round(cam.z * 100)}%</button>
           <button type="button" className="btn ghost icon-only sm" onClick={() => zoomBy(1.25)} aria-label="Zoom in" title="Zoom in (+)"><Icon name="plus" size={16} /></button>
           <button type="button" className="btn ghost icon-only sm" onClick={() => fitAll()} aria-label="Fit everything" title="Fit everything (⇧1)"><Icon name="maximize" size={15} /></button>
+          <button type="button" className={`btn ghost icon-only sm ${showMap ? 'on' : ''}`} onClick={() => { setShowMap(v => { localStorage.setItem('pwb-minimap', v ? '0' : '1'); return !v }) }} aria-label="Minimap" title="Map of the whole board"><Icon name="minimap" size={15} /></button>
         </div>
+      )}
+      {present === null && showMap && !mobile && sorted.length > 0 && (
+        <Minimap objs={sorted} all={objs} cam={cam} vp={vpSize} vpTop={vpTop} onJump={p => { stopFollowing(); const r = vpRef.current!; setCam({ ...camRef.current, x: r.clientWidth / 2 - p.x * camRef.current.z, y: r.clientHeight / 2 - p.y * camRef.current.z }) }} />
       )}
 
       {/* ---- present */}
@@ -1857,6 +2081,48 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
   )
 }
 
+/** Put a link (any page, YouTube) or a file (PDF, document) on the board. */
+function EmbedDialog({ onClose, onLink, onFile }: { onClose: () => void; onLink: (u: string) => void; onFile: () => void }) {
+  const [u, setU] = useState('')
+  return (
+    <Modal title="Link, video or file" onClose={onClose} size="sm" footer={<><button type="button" className="btn" onClick={onFile}><Icon name="upload" size={15} />A file…</button><span className="spacer" /><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="button" className="btn primary" disabled={!u.trim()} onClick={() => onLink(u)}>Add</button></>}>
+      <div className="stack">
+        <input autoFocus value={u} onChange={e => setU(e.target.value)} placeholder="https://…" aria-label="Web address" onKeyDown={e => { if (e.key === 'Enter' && u.trim()) onLink(u) }} />
+        <p className="muted small">A page gets a preview card; a YouTube link plays on the board; PDFs open on the board and documents open in a tab. You can also paste a link or drop a file straight on the board.</p>
+      </div>
+    </Modal>
+  )
+}
+
+/** The whole board in miniature: where you are, and a click to go elsewhere. */
+function Minimap({ objs, all, cam, vp, vpTop, onJump }: { objs: Obj[]; all: Map<string, Obj>; cam: Cam; vp: { w: number; h: number }; vpTop: number; onJump: (p: Pt) => void }) {
+  const W = 200, H = 130
+  const view = { x: -cam.x / cam.z, y: -cam.y / cam.z, w: vp.w / cam.z, h: vp.h / cam.z }
+  const content = union(objs.filter(o => o.kind !== 'line').map(o => rectOf(o, all))) || view
+  const b = union([content, view])!
+  const s = Math.min((W - 12) / Math.max(b.w, 1), (H - 12) / Math.max(b.h, 1))
+  const ox = (W - b.w * s) / 2 - b.x * s, oy = (H - b.h * s) / 2 - b.y * s
+  const dragging = useRef(false)
+  const jump = (e: React.PointerEvent) => {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    onJump({ x: (e.clientX - r.left - ox) / s, y: (e.clientY - r.top - oy) / s })
+  }
+  return (
+    <div className="wb-minimap" style={{ width: W, height: H, bottom: 62 }} aria-label="Map of the board"
+      onPointerDown={e => { e.stopPropagation(); dragging.current = true; (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); jump(e) }}
+      onPointerMove={e => { if (dragging.current) jump(e) }} onPointerUp={() => { dragging.current = false }}>
+      <svg width={W} height={H} aria-hidden>
+        {objs.filter(o => o.kind !== 'line' && o.kind !== 'pen').map(o => {
+          const c = o.kind === 'frame' ? tint(o.data.fill) : o.kind === 'sticky' ? paper(o.data.color || 'light-yellow').bg : o.kind === 'shape' ? paper(o.data.fill || 'white').bg : 'var(--wb-text-bar)'
+          return <rect key={o.id} x={ox + o.x * s} y={oy + o.y * s} width={Math.max(1.5, o.w * s)} height={Math.max(1.5, o.h * s)} fill={c} stroke={o.kind === 'frame' || o.kind === 'shape' ? 'var(--wb-frame-line)' : 'none'} strokeWidth={0.75} />
+        })}
+        <rect x={ox + view.x * s} y={oy + view.y * s} width={view.w * s} height={view.h * s} fill="color-mix(in srgb, var(--wb-sel) 10%, transparent)" stroke="var(--wb-sel)" strokeWidth={1.5} rx={2} />
+      </svg>
+      {void vpTop}
+    </div>
+  )
+}
+
 /** A grid of emoji at the pointer (from the right-click menu). */
 function EmojiPop({ x, y, title, list, cols, current, pick, onClose }: { x: number; y: number; title: string; list: string[]; cols: number; current: string[]; pick: (e: string) => void; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null)
@@ -1899,15 +2165,16 @@ function ToolBtn({ icon, label, k, on, onClick, disabled, more, dot }: { icon: s
 // ---- the bar over what is picked
 
 function ContextBar({ pos, list, canEdit, guest, onColour, onStyle, onFront, onBack, onDuplicate, onDelete, onLock, onGrid, onByColour, onAlign, onFocus, onTasks, tasksHint, onAI, onVote, onUnvote, onEdit,
-  onGroup, onUngroup, allTags, onTag, onByTag, onReact, myReactions, onComment }: {
+  onGroup, onUngroup, allTags, onTag, onByTag, onReact, myReactions, onComment, people, onCard, onCardTask, onOpenEmbed }: {
   pos: { left: number; top: number }; list: Obj[]; canEdit: boolean; guest: boolean
   onColour: (c: string) => void; onStyle: (d: Partial<ObjData>, only?: (o: Obj) => boolean) => void; onFront: () => void; onBack: () => void; onDuplicate: () => void; onDelete: () => void; onLock: () => void
   onGrid: () => void; onByColour: () => void; onAlign: (h: 'left' | 'top' | 'hcenter' | 'vcenter') => void; onFocus: () => void
   onTasks?: () => void; tasksHint?: string; onAI?: () => void; onVote?: () => void; onUnvote?: () => void; onEdit: () => void
   onGroup: () => void; onUngroup: () => void; allTags: string[]; onTag: (t: string, add: boolean) => void; onByTag: () => void
   onReact: (e: string) => void; myReactions: string[]; onComment: () => void
+  people: MentionPerson[]; onCard: (d: Partial<ObjData>) => void; onCardTask?: () => void; onOpenEmbed: () => void
 }) {
-  const [open, setOpen] = useState<'colour' | 'shape' | 'ink' | 'tags' | 'react' | 'size' | 'emoji' | null>(null)
+  const [open, setOpen] = useState<'colour' | 'shape' | 'ink' | 'tags' | 'react' | 'size' | 'emoji' | 'stroke' | 'due' | 'who' | null>(null)
   const grouped = list.length > 1 && list.every(o => o.data.group && o.data.group === list[0].data.group)
   const anyGroup = list.some(o => o.data.group)
   const taggable = list.filter(o => o.kind === 'sticky' || o.kind === 'shape')
@@ -1921,7 +2188,9 @@ function ContextBar({ pos, list, canEdit, guest, onColour, onStyle, onFront, onB
   const kinds = new Set(list.map(o => o.kind))
   const one = list.length === 1 ? list[0] : null
   const locked = list.every(o => o.data.locked)
-  const coloured = kinds.has('sticky') || kinds.has('shape') || kinds.has('frame')
+  const coloured = kinds.has('sticky') || kinds.has('shape') || kinds.has('frame') || kinds.has('card')
+  const cards = list.every(o => o.kind === 'card')
+  const shapes = list.every(o => o.kind === 'shape')
   const cur = one ? (one.data.color || one.data.fill || '') : ''
   const textish = list.filter(o => ['sticky', 'text', 'shape'].includes(o.kind) && textOf(o))
   if (!canEdit) {
@@ -1974,6 +2243,42 @@ function ContextBar({ pos, list, canEdit, guest, onColour, onStyle, onFront, onB
         <div className="wb-ctx-drop">
           <button type="button" className="btn ghost sm wb-sticker-btn" onClick={() => setOpen(open === 'emoji' ? null : 'emoji')} title="Change the sticker" aria-label="Change the sticker">{one?.data.emoji || '⭐'}<Icon name="chevron-down" size={12} /></button>
           {open === 'emoji' && <div className="wb-ctx-pop"><EmojiGrid list={STICKERS} cols={8} onPick={e => { onStyle({ emoji: e }, o => o.kind === 'sticker'); setOpen(null) }} /></div>}
+        </div>
+      )}
+      {cards && !locked && <>
+        <div className="wb-ctx-drop">
+          <button type="button" className={`btn ghost sm ${one?.data.due ? 'on' : ''}`} onClick={() => setOpen(open === 'due' ? null : 'due')} title="Due date"><Icon name="calendar" size={15} />{one?.data.due ? new Date(one.data.due + 'T12:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : ''}</button>
+          {open === 'due' && <div className="wb-ctx-pop wb-due">
+            <input type="date" defaultValue={one?.data.due || ''} onChange={e => onCard({ due: e.target.value || undefined })} aria-label="Due date" onKeyDown={e => e.stopPropagation()} />
+            {one?.data.due && <button type="button" className="btn ghost sm" onClick={() => { onCard({ due: undefined }); setOpen(null) }}>No date</button>}
+          </div>}
+        </div>
+        <div className="wb-ctx-drop">
+          <button type="button" className="btn ghost sm" onClick={() => setOpen(open === 'who' ? null : 'who')} title="Who does it">{one?.data.assignee ? <Avatar name={one.data.assignee.name} size={20} /> : <Icon name="user" size={15} />}</button>
+          {open === 'who' && <div className="wb-ctx-pop wb-who">
+            {people.length === 0 && <span className="muted small">Put people on the board (Share) to give them cards.</span>}
+            {people.map(p => <button key={p.id} type="button" className={`wb-rank-row ${one?.data.assignee?.id === p.id ? 'on' : ''}`} onClick={() => { onCard({ assignee: { id: p.id, name: p.name } }); setOpen(null) }}><Avatar name={p.name} size={22} /><span className="grow">{p.name}</span>{one?.data.assignee?.id === p.id && <Icon name="check" size={14} />}</button>)}
+            {one?.data.assignee && <button type="button" className="wb-rank-row" onClick={() => { onCard({ assignee: undefined }); setOpen(null) }}><Icon name="x" size={14} /><span className="grow">Nobody</span></button>}
+          </div>}
+        </div>
+        <button type="button" className={`btn ghost icon-only sm ${list.every(o => o.data.done) ? 'on' : ''}`} onClick={() => onCard({ done: !list.every(o => o.data.done) || undefined })} title={list.every(o => o.data.done) ? 'Not done yet' : 'Done'} aria-label="Done"><Icon name="check-circle" size={16} /></button>
+        {!guest && <button type="button" className={`btn ghost sm ${list.some(o => o.data.task) ? 'on' : ''}`} disabled={!onCardTask} onClick={onCardTask} title={onCardTask ? (list.some(o => o.data.task) ? 'Send to Pocket Tasks now' : 'Make it a task in Pocket Tasks (kept in step)') : tasksHint}><Icon name="check-square" size={15} />{list.some(o => o.data.task) ? 'In Tasks' : 'To Tasks'}</button>}
+      </>}
+      {shapes && !locked && (
+        <div className="wb-ctx-drop">
+          <button type="button" className="btn ghost icon-only sm" onClick={() => setOpen(open === 'stroke' ? null : 'stroke')} title="Outline" aria-label="Outline"><span className="wb-stroke-ico" style={{ borderColor: one?.data.stroke || 'var(--wb-stroke)', borderWidth: Math.min(4, one?.data.width || 2), borderStyle: one?.data.dash ? 'dashed' : 'solid' }} /></button>
+          {open === 'stroke' && <div className="wb-ctx-pop wb-stroke-pop">
+            <div className="wb-swatches">{INKS.map(c => <button key={c} type="button" className={`wb-sw round ${(one?.data.stroke || '') === c ? 'on' : ''}`} style={{ background: c }} aria-label={c} onClick={() => onStyle({ stroke: c })} />)}</div>
+            <div className="wb-widths">{[1, 2, 4, 6].map(w => <button key={w} type="button" className={`wb-width ${(one?.data.width || 2) === w ? 'on' : ''}`} onClick={() => onStyle({ width: w })} title={`${w} px`} aria-label={`${w} px`}><i style={{ width: 26, height: w, borderRadius: 2, background: 'var(--wb-ink)' }} /></button>)}</div>
+            <Segmented size="sm" className="wb-full" value={one?.data.dash ? 'dash' : 'solid'} onChange={v => onStyle({ dash: v === 'dash' || undefined })} options={[{ value: 'solid', label: 'Solid' }, { value: 'dash', label: 'Dashed' }]} />
+          </div>}
+        </div>
+      )}
+      {one?.kind === 'embed' && <button type="button" className="btn ghost sm" onClick={onOpenEmbed} title="Open"><Icon name={one.data.embed === 'youtube' ? 'play' : 'external'} size={15} />{one.data.embed === 'youtube' ? 'Play' : one.data.embed === 'pdf' ? 'Read' : 'Open'}</button>}
+      {one?.kind === 'icon' && !locked && (
+        <div className="wb-ctx-drop">
+          <button type="button" className="wb-ctx-colour round" onClick={() => setOpen(open === 'ink' ? null : 'ink')} title="Colour" aria-label="Colour" style={{ background: one.data.color || 'var(--wb-ink)' }} />
+          {open === 'ink' && <div className="wb-ctx-pop wb-swatches">{INKS.map(c => <button key={c} type="button" className="wb-sw round" style={{ background: c }} aria-label={c} onClick={() => { onStyle({ color: c }); setOpen(null) }} />)}</div>}
         </div>
       )}
       {one?.kind === 'shape' && !locked && (

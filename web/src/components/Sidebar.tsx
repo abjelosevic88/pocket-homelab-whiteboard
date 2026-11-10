@@ -4,7 +4,7 @@ import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { api, V1 } from '../lib/api'
 import { useApp } from '../lib/app-context'
 import { useOnChange } from '../lib/data'
-import type { BoardRow } from '../lib/types'
+import type { BoardRow, Folder } from '../lib/types'
 import { Icon } from './icons'
 
 export function Sidebar({ onCreate, onNavigate }: { onCreate: () => void; onNavigate: () => void }) {
@@ -12,16 +12,21 @@ export function Sidebar({ onCreate, onNavigate }: { onCreate: () => void; onNavi
   const navigate = useNavigate()
   const loc = useLocation()
   const [rows, setRows] = useState<BoardRow[] | null>(null)
-  const load = useCallback(() => { api.get<{ boards: BoardRow[] }>(`${V1}/boards?plain=1`).then(r => setRows(r.boards)).catch(() => {}) }, [])
+  const [folders, setFolders] = useState<Folder[]>([])
+  const load = useCallback(() => {
+    api.get<{ boards: BoardRow[] }>(`${V1}/boards?plain=1`).then(r => setRows(r.boards)).catch(() => {})
+    api.get<{ folders: Folder[] }>(`${V1}/folders`).then(r => setFolders(r.folders)).catch(() => {})
+  }, [])
   useEffect(() => { load() }, [load, loc.pathname])
   useOnChange(load)
 
   const title = settings?.title || status?.title || 'Pocket Whiteboard'
   const path = loc.pathname
   const show = new URLSearchParams(loc.search).get('show')
+  const folder = Number(new URLSearchParams(loc.search).get('folder')) || 0
   const l = rows || []
   const nav: { to: string; label: string; icon: string; active: boolean; count?: number }[] = [
-    { to: '/', label: 'All boards', icon: 'grid', active: path === '/' && !show },
+    { to: '/', label: 'All boards', icon: 'grid', active: path === '/' && !show && !folder },
     { to: '/?show=starred', label: 'Starred', icon: 'star', active: path === '/' && show === 'starred', count: l.filter(b => b.starred).length || undefined },
     { to: '/?show=mine', label: 'Made by me', icon: 'user', active: path === '/' && show === 'mine' },
     { to: '/?show=shared', label: 'Shared with me', icon: 'users', active: path === '/' && show === 'shared', count: l.filter(b => b.role !== 'owner').length || undefined },
@@ -46,6 +51,16 @@ export function Sidebar({ onCreate, onNavigate }: { onCreate: () => void; onNavi
           </NavLink>
         ))}
       </nav>
+
+      <section className="sb-sec">
+        <h4 className="sb-h sb-h-row"><span>Folders</span><button type="button" className="sb-h-btn" title="New folder" aria-label="New folder" onClick={async () => { const name = window.prompt('Folder name')?.trim(); if (!name) return; try { const r = await api.post<{ folder: Folder }>(`${V1}/folders`, { name }); load(); onNavigate(); navigate(`/?folder=${r.folder.id}`) } catch { /* shown on the page */ } }}><Icon name="plus" size={14} /></button></h4>
+        {folders.map(f => (
+          <NavLink key={f.id} to={`/?folder=${f.id}`} onClick={onNavigate} className={() => `sb-row sb-list ${path === '/' && folder === f.id ? 'active' : ''}`}>
+            <Icon name="archive" size={15} className="sb-list-ico" /><span className="grow ellipsis">{f.name}</span>{f.boards > 0 && <span className="muted small">{f.boards}</span>}
+          </NavLink>
+        ))}
+        {folders.length === 0 && <p className="muted small sb-empty-line">Keep boards together: + makes a folder.</p>}
+      </section>
 
       <section className="sb-sec">
         <h4 className="sb-h"><Link to="/" onClick={onNavigate} className="sb-h-link">Recent</Link></h4>

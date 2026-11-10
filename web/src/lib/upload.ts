@@ -45,3 +45,13 @@ export async function uploadPicture(file: File, url: string, headers: Record<str
   if (!res.ok) throw new ApiError(res.status, j.error || res.statusText, j)
   return { ...(j as Uploaded), w, h }
 }
+
+/** Puts any file up for a board (PDFs, documents) as it is. */
+export async function uploadDoc(file: File, url: string, headers: Record<string, string> = {}): Promise<Uploaded & { upload: { bytes: number } }> {
+  const fd = new FormData()
+  fd.append('file', file, file.name || 'file')
+  const res = await fetch(url, { method: 'POST', body: fd, credentials: 'same-origin', headers })
+  const j = await res.json().catch(() => ({}))
+  if (!res.ok) throw new ApiError(res.status, j.error || res.statusText, j)
+  return j
+}

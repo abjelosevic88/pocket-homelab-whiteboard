@@ -40,7 +40,13 @@ const boardId = async (page, title) => (await page.evaluate(() => fetch('/api/v1
   // a new note by double-click, written on, seen on the server
   const id = await boardId(page, 'Website')
   await go(page, `/b/${id}`)
-  await page.mouse.dblclick(1200, 820)
+  // find empty board (nothing within 60 px), then double-click it
+  const spot = await page.evaluate(() => {
+    const clear = (x, y) => [[0, 0], [60, 0], [-60, 0], [0, 60], [0, -60]].every(([dx, dy]) => { const e = document.elementFromPoint(x + dx, y + dy); return e && e.classList.contains('wb-vp') })
+    for (let y = 820; y > 200; y -= 40) for (let x = 1300; x > 200; x -= 40) if (clear(x, y)) return { x, y }
+    return { x: 1200, y: 820 }
+  })
+  await page.mouse.dblclick(spot.x, spot.y)
   await page.waitForTimeout(250)
   await page.keyboard.type('Smoke test note')
   await page.keyboard.press('Escape')

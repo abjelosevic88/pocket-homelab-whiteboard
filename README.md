@@ -25,6 +25,11 @@
 - **Comments** pinned to a spot or a note, with replies, **@mentions** (a push to the person) and resolve.
 - **Private mode** for workshops: everyone writes hidden notes, then someone reveals them all at once.
 - **Reactions** on notes, **stickers**, and emoji that float up everyone's screen.
+- **Mind maps**: Tab grows a branch, Enter one beside it, and the map lays itself out; moving a branch carries what grows from it.
+- **Cards** with an assignee, a due date and done — made into **Pocket Tasks** tasks and kept in step both ways (done, title, due date).
+- **Shape library**: basic shapes, **flowchart** (start/end, decision, document, database, sub-process, delay…), **UML** (class, actor, note, component, package) and **icons**; outline colour, thickness and dashes.
+- **Embeds**: paste or drop a link for a preview card, YouTube plays on the board, PDFs are read on the board, documents open in a tab. **PDF export** with a page per frame.
+- **Folders** of your own on the home page, **your own templates** from any board, and a **minimap** of the whole board.
 - **History**: the board is kept as it was before the first change after a quiet ten minutes (or when you keep a moment) — go back to any version, or put back something deleted.
 - **Voting** with dots (counts hidden until the end if you like) and results ranked; a **timer** everyone sees, with a chime at the end; **present** frame by frame.
 - **Lines up** with the things around it as you drag (or snaps to the grid); resize, lock, bring to front, arrange in a grid, sort by colour, undo and redo.

@@ -51,6 +51,7 @@ type Board struct {
 	OpenedAt  string `json:"opened_at,omitempty"`
 	Objects   int    `json:"objects_n"`
 	Members   int    `json:"members_n"`
+	FolderID  int64  `json:"folder_id"`
 }
 
 // Vote is a board's voting round.
@@ -142,7 +143,7 @@ type Object struct {
 }
 
 // Kinds are the things a board can hold.
-var Kinds = []string{"sticky", "text", "shape", "line", "frame", "pen", "image", "sticker"}
+var Kinds = []string{"sticky", "text", "shape", "line", "frame", "pen", "image", "sticker", "card", "embed", "icon"}
 
 // Upload is a picture put on a board.
 type Upload struct {

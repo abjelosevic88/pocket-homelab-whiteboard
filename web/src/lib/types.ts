@@ -23,7 +23,7 @@ export type AppStateName = 'on' | 'partly' | 'off' | 'link_off' | 'missing' | 'o
 export interface AppState { slug: AppSlug; name: string; reason: string; mode: ConnMode; via: ConnVia; state: AppStateName; detail: string; fix: string; on: string[]; open_url: string }
 
 export type Background = 'dots' | 'grid' | 'plain'
-export type Kind = 'sticky' | 'text' | 'shape' | 'line' | 'frame' | 'pen' | 'image' | 'sticker'
+export type Kind = 'sticky' | 'text' | 'shape' | 'line' | 'frame' | 'pen' | 'image' | 'sticker' | 'card' | 'embed' | 'icon'
 export type Role = 'owner' | 'editor' | 'viewer'
 
 export interface Vote { round: number; per_person: number; open: boolean; done: boolean; hide: boolean; started_at?: string; started_by?: string }
@@ -39,7 +39,7 @@ export interface Comment { id: number; board_id: number; parent_id: number | nul
 export interface Version { id: number; name: string; who: string; n: number; created_at: string }
 export interface Trashed { id: number; object_id: string; kind: Kind; text: string; deleted_by: string; deleted_at: string }
 export interface PreviewShape { k: Kind; x: number; y: number; w: number; h: number; c?: string; s?: string }
-export interface BoardRow extends Board { starred: boolean; opened_at: string; objects_n: number; members_n: number; live: number; preview?: PreviewShape[] }
+export interface BoardRow extends Board { starred: boolean; opened_at: string; objects_n: number; members_n: number; live: number; preview?: PreviewShape[]; folder_id: number }
 
 /** What kind-specific things an object keeps. */
 export interface ObjData {
@@ -51,8 +51,17 @@ export interface ObjData {
   upload?: number; src?: string; name?: string
   locked?: boolean; tags?: string[]
   group?: string; rot?: number; html?: string; emoji?: string
+  // cards
+  due?: string; done?: boolean; assignee?: { id: number; name: string }; task?: { id: number; url: string }
+  // embeds and icons
+  url?: string; embed?: 'link' | 'youtube' | 'pdf' | 'file'; description?: string; image?: string; site?: string; favicon?: string; video?: string; mime?: string; bytes?: number; icon?: string
+  // mind maps
+  mind?: { root: string; parent?: string; depth: number }
 }
 export type ShapeForm = 'rect' | 'round' | 'ellipse' | 'diamond' | 'triangle' | 'hexagon' | 'star' | 'parallelogram'
+  | 'pentagon' | 'octagon' | 'cross' | 'cloud' | 'callout' | 'arrow-right' | 'chevron'
+  | 'stadium' | 'document' | 'cylinder' | 'predefined' | 'manual' | 'delay' | 'offpage' | 'merge' | 'display'
+  | 'class' | 'actor' | 'note' | 'component' | 'package'
 export interface Obj { id: string; kind: Kind; x: number; y: number; w: number; h: number; z: number; data: ObjData; author?: string; user_id?: number | null; updated_by?: string; created_at?: string; updated_at?: string; hidden?: boolean }
 export type Op = { op: 'put'; id?: string; obj: Obj } | { op: 'del'; id: string }
 
@@ -61,5 +70,6 @@ export interface Person { client: string; name: string; colour: string; voter: s
 export interface Me { role: Role; can_edit: boolean; voter: string; name: string; colour: string; guest: boolean }
 export interface Votes { round: number; open: boolean; done: boolean; per_person: number; hide: boolean; counts: Record<string, number>; mine: Record<string, number>; voters: number; left: number }
 export interface BoardDoc { board: Board; objects: Obj[]; people: Person[]; me: Me; votes: Votes; members?: Member[]; starred?: boolean; share_url?: string; reactions?: Record<string, Reaction[]>; private_counts?: PrivateCount[] }
-export interface Template { key: string; title: string; about: string; emoji: string; preview: PreviewShape[] }
+export interface Template { key: string; title: string; about: string; emoji: string; preview: PreviewShape[]; id?: number; mine?: boolean }
+export interface Folder { id: number; name: string; position: number; boards: number }
 export interface Summary { boards: number; mine: number; shared_with_me: number; starred: number; things: number; live_now: number; recent: { id: number; title: string; updated_at: string; objects: number; role: Role; live: number }[] }

@@ -163,5 +163,12 @@ func (s *Server) handleTemplates(w http.ResponseWriter, r *http.Request) {
 		objs := t.Objects()
 		out = append(out, map[string]any{"key": t.Key, "title": t.Title, "about": t.About, "emoji": t.Emoji, "preview": preview(objs)})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"templates": out})
+	mine := []map[string]any{}
+	if u := userFrom(r.Context()); u != nil {
+		list, _ := s.store.Templates(r.Context(), u.ID)
+		for _, t := range list {
+			mine = append(mine, map[string]any{"key": "u:" + itoa(t.ID), "id": t.ID, "title": t.Title, "about": t.About, "emoji": t.Emoji, "preview": t.Preview, "mine": true, "created_at": t.CreatedAt})
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"templates": out, "mine": mine})
 }

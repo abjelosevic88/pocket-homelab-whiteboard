@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api, V1 } from '../lib/api'
 import { useOnChange, announceChange } from '../lib/data'
-import type { BoardRow, PreviewShape, Template } from '../lib/types'
+import type { BoardRow, Folder, PreviewShape, Template } from '../lib/types'
 import { ago } from '../lib/format'
 import { paper, previewBounds, shapePath, tint } from '../lib/board'
 import { Icon } from '../components/icons'
@@ -42,6 +42,12 @@ export default function Home() {
   const { toast } = useToast()
   const [params, setParams] = useSearchParams()
   const show = (params.get('show') as Show) || 'all'
+  const folder = Number(params.get('folder')) || 0
+  const [folders, setFolders] = useState<Folder[]>([])
+  const [mine, setMine] = useState<Template[]>([])
+  const loadFolders = useCallback(() => { api.get<{ folders: Folder[] }>(`${V1}/folders`).then(r => setFolders(r.folders)).catch(() => {}) }, [])
+  useEffect(() => { loadFolders() }, [loadFolders])
+  useOnChange(loadFolders)
   const [boards, setBoards] = useState<BoardRow[] | null>(null)
   const [templates, setTemplates] = useState<Template[]>([])
   const [q, setQ] = useState('')
@@ -52,13 +58,14 @@ export default function Home() {
   const load = useCallback(() => { api.get<{ boards: BoardRow[] }>(`${V1}/boards`).then(r => setBoards(r.boards)).catch(e => { toast(errMsg(e), 'err'); setBoards([]) }) }, [toast])
   useEffect(() => { load() }, [load])
   useOnChange(load)
-  useEffect(() => { api.get<{ templates: Template[] }>(`${V1}/templates`).then(r => setTemplates(r.templates)).catch(() => {}) }, [])
+  const loadTemplates = useCallback(() => { api.get<{ templates: Template[]; mine: Template[] }>(`${V1}/templates`).then(r => { setTemplates(r.templates); setMine(r.mine || []) }).catch(() => {}) }, [])
+  useEffect(() => { loadTemplates() }, [loadTemplates])
   useEffect(() => { const t = window.setInterval(() => { if (document.visibilityState === 'visible') load() }, 30000); return () => window.clearInterval(t) }, [load])
 
   const create = async (template: string) => {
     setMaking(template)
     try {
-      const r = await api.post<{ board: BoardRow }>(`${V1}/boards`, { template })
+      const r = await api.post<{ board: BoardRow }>(`${V1}/boards`, { template, folder_id: folder || undefined })
       announceChange()
       navigate(`/b/${r.board.id}`)
     } catch (e) { toast(errMsg(e), 'err') } finally { setMaking('') }
@@ -69,10 +76,34 @@ export default function Home() {
     if (show === 'starred') l = l.filter(b => b.starred)
     if (show === 'mine') l = l.filter(b => b.role === 'owner')
     if (show === 'shared') l = l.filter(b => b.role !== 'owner')
+    if (folder) l = l.filter(b => b.folder_id === folder)
     if (q.trim()) { const s = q.trim().toLowerCase(); l = l.filter(b => (b.title + ' ' + b.about + ' ' + b.owner_name).toLowerCase().includes(s)) }
     const by = (b: BoardRow) => sort === 'opened' ? (b.opened_at || b.updated_at) : sort === 'changed' ? b.updated_at : sort === 'made' ? b.created_at : ''
     return [...l].sort((a, b) => sort === 'name' ? a.title.localeCompare(b.title) : by(b).localeCompare(by(a)))
-  }, [boards, show, q, sort])
+  }, [boards, show, q, sort, folder])
+  const moveTo = async (b: BoardRow, fid: number) => {
+    try { await api.put(`${V1}/boards/${b.id}/folder`, { folder_id: fid }); setBoards(l => l?.map(x => x.id === b.id ? { ...x, folder_id: fid } : x) || null); announceChange() } catch (e) { toast(errMsg(e), 'err') }
+  }
+  const newFolder = async (then?: (id: number) => void) => {
+    const name = window.prompt('Folder name')?.trim()
+    if (!name) return
+    try { const r = await api.post<{ folder: Folder }>(`${V1}/folders`, { name }); announceChange(); then?.(r.folder.id) } catch (e) { toast(errMsg(e), 'err') }
+  }
+  const curFolder = folders.find(f => f.id === folder)
+  const renameFolder = async () => {
+    if (!curFolder) return
+    const name = window.prompt('Folder name', curFolder.name)?.trim()
+    if (!name || name === curFolder.name) return
+    try { await api.put(`${V1}/folders/${curFolder.id}`, { name, position: curFolder.position }); announceChange() } catch (e) { toast(errMsg(e), 'err') }
+  }
+  const deleteFolder = async () => {
+    if (!curFolder || !window.confirm(`Delete the folder “${curFolder.name}”? Its boards stay, outside any folder.`)) return
+    try { await api.del(`${V1}/folders/${curFolder.id}`); setParams({}); announceChange(); load() } catch (e) { toast(errMsg(e), 'err') }
+  }
+  const dropTemplate = async (t: Template) => {
+    if (!t.id || !window.confirm(`Delete the template “${t.title}”? Boards made from it stay.`)) return
+    try { await api.del(`${V1}/templates/mine/${t.id}`); loadTemplates() } catch (e) { toast(errMsg(e), 'err') }
+  }
 
   const star = async (b: BoardRow) => {
     try { await api.put(`${V1}/boards/${b.id}/star`, { starred: !b.starred }); setBoards(l => l?.map(x => x.id === b.id ? { ...x, starred: !b.starred } : x) || null); announceChange() } catch (e) { toast(errMsg(e), 'err') }
@@ -92,12 +123,30 @@ export default function Home() {
     <div className="stack loose">
       <div className="page-head">
         <div className="grow">
-          <h2 className="page-title">{titles[show]}</h2>
+          <h2 className="page-title">{curFolder ? <><Icon name="archive" size={20} /> {curFolder.name}</> : titles[show]}</h2>
           <p className="muted">{boards ? `${boards.length} ${boards.length === 1 ? 'board' : 'boards'}` : ' '}</p>
         </div>
+        {curFolder && <MenuButton label="Folder" className="btn" align="right" items={[{ label: 'Rename', icon: 'edit', onSelect: renameFolder }, { label: 'Delete the folder', icon: 'trash', danger: true, onSelect: deleteFolder }]}><Icon name="more" size={15} /></MenuButton>}
         <button type="button" className="btn primary" onClick={() => create('blank')} disabled={!!making}><Icon name="plus" size={15} />New board</button>
       </div>
 
+      {show === 'all' && mine.length > 0 && (
+        <section>
+          <h3 className="sec-h">Your templates</h3>
+          <div className="tpl-row">
+            {mine.map(t => (
+              <div key={t.key} className="tpl-wrap">
+                <button type="button" className="tpl" onClick={() => create(t.key)} disabled={!!making} title={t.about}>
+                  <Miniature shapes={t.preview} />
+                  <span className="tpl-name"><span aria-hidden>{t.emoji}</span> {t.title}</span>
+                  {making === t.key && <span className="tpl-wait">Making…</span>}
+                </button>
+                <button type="button" className="tpl-x btn ghost icon-only xs" onClick={() => dropTemplate(t)} title="Delete the template" aria-label="Delete the template"><Icon name="x" size={13} /></button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
       {show === 'all' && templates.length > 0 && (
         <section>
           <h3 className="sec-h">Start from</h3>
@@ -130,6 +179,12 @@ export default function Home() {
               { label: 'Open', icon: 'external', onSelect: () => navigate(`/b/${b.id}`) },
               { label: b.starred ? 'Unstar' : 'Star', icon: 'star', onSelect: () => star(b) },
               { label: 'Make a copy', icon: 'copy', onSelect: () => copy(b) },
+              { label: 'Move to folder', icon: 'archive', submenu: [
+                ...folders.map(f => ({ label: f.name, checked: b.folder_id === f.id, onSelect: () => moveTo(b, f.id) })),
+                ...(b.folder_id ? [{ label: 'Out of the folder', icon: 'x', onSelect: () => moveTo(b, 0) }] : []),
+                ...(folders.length ? ['sep' as const] : []),
+                { label: 'New folder…', icon: 'plus', onSelect: () => newFolder(id => moveTo(b, id)) },
+              ] },
               'sep',
               b.role === 'owner' ? { label: 'Delete', icon: 'trash', danger: true, onSelect: () => setDel(b) } : { label: 'Leave the board', icon: 'log-out', onSelect: () => setDel(b) },
             ]

@@ -24,6 +24,7 @@ import (
 
 const (
 	scopeTasksWrite = "tasks:write"
+	scopeTasksRead  = "tasks:read"
 	scopeNotesWrite = "notes:write"
 	scopeChatRead   = "chat:read"
 	scopeChatWrite  = "chat:write"
@@ -38,7 +39,7 @@ type pocketApp struct {
 }
 
 var (
-	appTasks   = pocketApp{"tasks", "Pocket Tasks", []string{scopeTasksWrite}, "Turn the sticky notes you pick into tasks, each with a link back to the board"}
+	appTasks   = pocketApp{"tasks", "Pocket Tasks", []string{scopeTasksWrite, scopeTasksRead}, "Turn the sticky notes you pick into tasks, and keep cards on a board in step with your tasks (done, due date, title)"}
 	appNotes   = pocketApp{"notes", "Pocket Notes", []string{scopeNotesWrite}, "Keep a board's notes as a note, grouped by frame and colour"}
 	appChat    = pocketApp{"chat", "Pocket Chat", []string{scopeChatRead, scopeChatWrite}, "Send a board's link to a chat, so the others can join in"}
 	appFiles   = pocketApp{"files", "Pocket Files", []string{scopeFilesWrite}, "Keep a picture of a board in your files"}

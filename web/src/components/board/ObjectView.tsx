@@ -2,7 +2,9 @@
 // scales everything at once). Memoised: only what changed draws again.
 import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Obj } from '../../lib/types'
-import { arrowHead, fitSize, paper, penPath, shapePath, shapeTextBox, stickyBox, tint, type LineGeom } from '../../lib/board'
+import { OUTLINE_ONLY, actorPath, arrowHead, fitSize, paper, penPath, shapeLines, shapePath, shapeTextBox, stickyBox, tint, type LineGeom } from '../../lib/board'
+import { Icon, iconPath } from '../icons'
+import { Avatar } from '../ui'
 import { hasFormatting, htmlToText, sanitize, textToHTML } from '../../lib/rich'
 
 export interface EditResult { text: string; html?: string; h?: number }
@@ -14,7 +16,7 @@ export interface ViewProps {
   imgSrc?: string
   remote?: string // the colour of someone else who has it selected
   showAuthor?: boolean
-  onEditDone?: (id: string, r: EditResult, how: 'done' | 'tab' | 'cancel') => void
+  onEditDone?: (id: string, r: EditResult, how: 'done' | 'tab' | 'cancel' | 'enter') => void
 }
 
 /** Where the editor of the note being written is (the format bar uses it). */
@@ -41,7 +43,7 @@ function Editable({ id, text, html, rich, className, style, onDone, onText, mult
     s?.addRange(r)
     return () => { if (activeEditor === el) activeEditor = null }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
-  const finish = (how: 'done' | 'tab' | 'cancel') => {
+  const finish = (how: 'done' | 'tab' | 'cancel' | 'enter') => {
     if (done.current) return
     done.current = true
     const el = ref.current
@@ -70,7 +72,7 @@ function Editable({ id, text, html, rich, className, style, onDone, onText, mult
         e.stopPropagation()
         if (e.key === 'Escape') { e.preventDefault(); finish('done') }
         else if (e.key === 'Tab') { e.preventDefault(); finish('tab') }
-        else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey || !multiline)) { e.preventDefault(); finish('done') }
+        else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey || !multiline) && !e.shiftKey) { e.preventDefault(); finish(multiline ? 'done' : 'enter') }
       }} />
   )
 }
@@ -151,13 +153,89 @@ function ShapeView({ o, editing, onEditDone }: ViewProps) {
   return (
     <div className={`ob ob-shape ${o.hidden ? 'is-hidden' : ''}`} data-id={o.id} style={place(o)}>
       <svg width={o.w} height={o.h} viewBox={`0 0 ${o.w} ${o.h}`} className="ob-shape-svg" aria-hidden>
-        <path d={shapePath(d.shape, o.w, o.h)} fill={p.bg} stroke={d.stroke || 'var(--wb-stroke)'} strokeWidth={d.width || 2} vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+        {d.shape && OUTLINE_ONLY.has(d.shape)
+          ? <path d={actorPath(o.w, o.h)} fill="none" stroke={d.stroke || 'var(--wb-stroke)'} strokeWidth={d.width || 2.5} strokeLinecap="round" strokeLinejoin="round" />
+          : <>
+            <path d={shapePath(d.shape, o.w, o.h)} fill={p.bg} stroke={d.stroke || 'var(--wb-stroke)'} strokeWidth={d.width || 2} strokeDasharray={d.dash ? `${(d.width || 2) * 4} ${(d.width || 2) * 3}` : undefined} strokeLinejoin="round" />
+            {shapeLines(d.shape, o.w, o.h) && <path d={shapeLines(d.shape, o.w, o.h)} fill="none" stroke={d.stroke || 'var(--wb-stroke)'} strokeWidth={d.width || 2} strokeLinejoin="round" />}
+          </>}
       </svg>
       {editing
-        ? <Editable id={o.id} text={d.text || ''} html={d.html} rich className="ob-sh-text" style={tstyle} onDone={onEditDone} onText={setDraft} />
+        ? <Editable id={o.id} text={d.text || ''} html={d.html} rich className="ob-sh-text" style={tstyle} onDone={onEditDone} onText={setDraft} multiline={!d.mind} />
         : <Body d={d} className="ob-sh-text" style={tstyle} />}
       <Tags tags={d.tags} />
     </div>
+  )
+}
+
+function CardView({ o, editing, onEditDone }: ViewProps) {
+  const d = o.data
+  const today = new Date().toISOString().slice(0, 10)
+  const late = !!d.due && !d.done && d.due < today
+  const stripe = paper(d.color || 'blue').bg
+  return (
+    <div className={`ob ob-card ${d.done ? 'done' : ''} ${o.hidden ? 'is-hidden' : ''}`} data-id={o.id} style={place(o, { ['--stripe' as string]: stripe })}>
+      {editing
+        ? <Editable id={o.id} text={d.text || ''} className="ob-card-title" onDone={onEditDone} multiline />
+        : <div className="ob-card-title">{d.text || 'Card'}</div>}
+      <div className="ob-card-foot">
+        {d.due && <span className={`ob-card-due ${late ? 'late' : ''}`}><Icon name="calendar" size={13} />{new Date(d.due + 'T12:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span>}
+        {d.done && <span className="ob-card-done"><Icon name="check" size={13} />Done</span>}
+        <span className="spacer" />
+        {d.task && <span className="ob-card-task" title="In Pocket Tasks"><Icon name="check-square" size={14} /></span>}
+        {d.assignee && <span title={d.assignee.name}><Avatar name={d.assignee.name} size={24} /></span>}
+      </div>
+      <Tags tags={d.tags} />
+    </div>
+  )
+}
+
+function EmbedView({ o, editing, imgSrc }: ViewProps) {
+  const d = o.data
+  const kind = d.embed || 'link'
+  if (kind === 'youtube') {
+    return (
+      <div className={`ob ob-embed yt ${editing ? 'live' : ''}`} data-id={o.id} style={place(o)}>
+        {editing && d.video
+          ? <iframe src={`https://www.youtube-nocookie.com/embed/${d.video}?autoplay=1&rel=0`} title={d.title || 'YouTube'} allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen />
+          : <>
+            {d.image && <img src={d.image} alt="" draggable={false} referrerPolicy="no-referrer" />}
+            <span className="ob-embed-play"><Icon name="play" size={28} /></span>
+            <span className="ob-embed-cap">{d.title || 'YouTube'}<small>Double-click to play</small></span>
+          </>}
+      </div>
+    )
+  }
+  if (kind === 'pdf' && editing && imgSrc) {
+    return <div className="ob ob-embed doc live" data-id={o.id} style={place(o)}><iframe src={imgSrc + '#view=FitH'} title={d.name || 'PDF'} /></div>
+  }
+  if (kind === 'pdf' || kind === 'file') {
+    const kb = d.bytes ? (d.bytes > 1048576 ? `${(d.bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(d.bytes / 1024))} KB`) : ''
+    return (
+      <div className="ob ob-embed doc" data-id={o.id} style={place(o)}>
+        <span className="ob-embed-doc"><Icon name={kind === 'pdf' ? 'file-pdf' : 'file'} size={40} /></span>
+        <span className="ob-embed-text"><b>{d.name || 'File'}</b><small>{[kb, kind === 'pdf' ? 'Double-click to read' : 'Double-click to open'].filter(Boolean).join(' · ')}</small></span>
+      </div>
+    )
+  }
+  return (
+    <div className="ob ob-embed link" data-id={o.id} style={place(o)}>
+      {d.image && <img className="ob-embed-img" src={d.image} alt="" draggable={false} referrerPolicy="no-referrer" onError={e => { (e.target as HTMLElement).style.display = 'none' }} />}
+      <span className="ob-embed-text">
+        <b>{d.title || d.url}</b>
+        {d.description && <span className="ob-embed-desc">{d.description}</span>}
+        <small>{d.favicon && <img src={d.favicon} alt="" width={14} height={14} referrerPolicy="no-referrer" onError={e => { (e.target as HTMLElement).style.display = 'none' }} />}{d.site || (d.url ? new URL(d.url).hostname : '')}</small>
+      </span>
+    </div>
+  )
+}
+
+function IconView({ o }: ViewProps) {
+  return (
+    <svg className={`ob ob-iconobj ${o.hidden ? 'is-hidden' : ''}`} style={place(o)} width={o.w} height={o.h} viewBox="0 0 24 24" aria-hidden>
+      <rect data-id={o.id} x="0" y="0" width="24" height="24" fill="transparent" />
+      <path d={iconPath(o.data.icon || 'star')} fill="none" stroke={o.data.color || 'var(--wb-ink)'} strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" pointerEvents="none" />
+    </svg>
   )
 }
 
@@ -236,6 +314,9 @@ function View(p: ViewProps) {
       case 'pen': return <PenView {...p} />
       case 'image': return <ImageView {...p} />
       case 'sticker': return <StickerView {...p} />
+      case 'card': return <CardView {...p} />
+      case 'embed': return <EmbedView {...p} />
+      case 'icon': return <IconView {...p} />
     }
     return null
   })()
