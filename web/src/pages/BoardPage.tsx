@@ -2172,7 +2172,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
 
       {/* ---- tools */}
       {present === null && (
-        <nav ref={toolsRef} className="wb-tools" aria-label="Tools" onPointerDown={e => e.stopPropagation()}>
+        <nav ref={toolsRef} className={`wb-tools ${flyout ? "is-open" : ""}`} aria-label="Tools" onPointerDown={e => e.stopPropagation()}>
           <ToolBtn icon="cursor" label="Select" k="V" on={tool === 'select'} onClick={() => setTool('select')} />
           <ToolBtn icon="hand" label="Move the board" k="H" on={tool === 'hand'} onClick={() => setTool('hand')} />
           {(canEdit || !guest) && <ToolBtn icon="comment" label="Comment" k="C" on={tool === 'comment'} onClick={() => setTool(tool === 'comment' ? 'select' : 'comment')} />}
@@ -2579,8 +2579,8 @@ function ContextBar({ pos, list, canEdit, guest, onColour, onStyle, onFront, onB
       {one?.kind === 'table' && !locked && canEdit && <>
         <button type="button" className="btn ghost sm" onClick={() => onTable('row')} title="Add a row at the bottom"><Icon name="plus" size={14} />Row</button>
         <button type="button" className="btn ghost sm" onClick={() => onTable('col')} title="Add a column on the right"><Icon name="plus" size={14} />Column</button>
-        <button type="button" className="btn ghost icon-only sm" disabled={(one.data.cells || []).length < 2} onClick={() => onTable('unrow')} title="Remove the bottom row" aria-label="Remove the bottom row"><Icon name="minus" size={14} /></button>
-        <button type="button" className="btn ghost icon-only sm" disabled={Math.max(0, ...(one.data.cells || []).map(r => r.length)) < 2} onClick={() => onTable('uncol')} title="Remove the right column" aria-label="Remove the right column"><Icon name="x" size={14} /></button>
+        <button type="button" className="btn ghost sm" disabled={(one.data.cells || []).length < 2} onClick={() => onTable('unrow')} title="Remove the bottom row" aria-label="Remove the bottom row"><Icon name="minus" size={14} />Row</button>
+        <button type="button" className="btn ghost sm" disabled={Math.max(0, ...(one.data.cells || []).map(r => r.length)) < 2} onClick={() => onTable('uncol')} title="Remove the right column" aria-label="Remove the right column"><Icon name="minus" size={14} />Column</button>
         <button type="button" className={`btn ghost sm ${one.data.header ? 'on' : ''}`} onClick={() => onTable('header')} title="First row as headings">Headings</button>
       </>}
       {shapes && !locked && (

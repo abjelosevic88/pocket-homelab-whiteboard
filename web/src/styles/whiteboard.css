@@ -696,8 +696,10 @@ button.wb-poker-card.on { transform: translateY(-4px); }
 .wb-crop-area { position: relative; width: 100%; max-height: 60vh; margin: 0 auto; user-select: none; touch-action: none; background: #111; border-radius: 8px; overflow: hidden; }
 .wb-crop-area img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; pointer-events: none; }
 .wb-crop-box { position: absolute; box-shadow: 0 0 0 9999px rgba(0, 0, 0, .55); outline: 2px solid #fff; cursor: move; }
-.wb-crop-h { position: absolute; width: 14px; height: 14px; background: #fff; border-radius: 3px; box-shadow: 0 1px 3px rgba(0, 0, 0, .4); }
-.wb-crop-h.nw { left: -7px; top: -7px; cursor: nwse-resize; } .wb-crop-h.se { right: -7px; bottom: -7px; cursor: nwse-resize; }
-.wb-crop-h.ne { right: -7px; top: -7px; cursor: nesw-resize; } .wb-crop-h.sw { left: -7px; bottom: -7px; cursor: nesw-resize; }
-.wb-crop-h.n { left: calc(50% - 7px); top: -7px; cursor: ns-resize; } .wb-crop-h.s { left: calc(50% - 7px); bottom: -7px; cursor: ns-resize; }
-.wb-crop-h.w { top: calc(50% - 7px); left: -7px; cursor: ew-resize; } .wb-crop-h.e { top: calc(50% - 7px); right: -7px; cursor: ew-resize; }
+.wb-crop-h { position: absolute; width: 16px; height: 16px; background: #fff; border-radius: 3px; box-shadow: 0 1px 3px rgba(0, 0, 0, .4); }
+.wb-crop-h.nw { left: 0; top: 0; cursor: nwse-resize; } .wb-crop-h.se { right: 0; bottom: 0; cursor: nwse-resize; }
+.wb-crop-h.ne { right: 0; top: 0; cursor: nesw-resize; } .wb-crop-h.sw { left: 0; bottom: 0; cursor: nesw-resize; }
+.wb-crop-h.n { left: calc(50% - 7px); top: 0; cursor: ns-resize; } .wb-crop-h.s { left: calc(50% - 7px); bottom: 0; cursor: ns-resize; }
+.wb-crop-h.w { top: calc(50% - 7px); left: 0; cursor: ew-resize; } .wb-crop-h.e { top: calc(50% - 7px); right: 0; cursor: ew-resize; }
+/* an open tool panel sits above the bar over what is picked */
+.wb-tools.is-open { z-index: 27; }

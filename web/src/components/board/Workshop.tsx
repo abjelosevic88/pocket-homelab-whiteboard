@@ -43,7 +43,7 @@ export function PokerBar({ poker, what, mine, host, onPick, onShow, onAgain, onS
             <div key={i} className={`wb-poker-result ${p.value === suggest ? 'top' : ''}`}>
               <span className="wb-poker-card on">{p.value}</span>
               {p.name && <span className="small">{p.name}</span>}
-              {host && <button type="button" className="btn ghost sm" onClick={() => onSave(p.value)} title={`Keep ${p.value} on it`}>Keep</button>}
+              {host && p.value !== suggest && picks.findIndex(q => q.value === p.value) === i && <button type="button" className="btn ghost sm" onClick={() => onSave(p.value)} title={`Keep ${p.value} on it`}>Keep {p.value}</button>}
             </div>
           ))}
           {poker.average !== undefined && <span className="muted small wb-poker-avg">Average {poker.average}</span>}
