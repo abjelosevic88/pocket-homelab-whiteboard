@@ -202,6 +202,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
   followRef.current = following
   const [sticker, setSticker] = useState('⭐')
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; p: Pt; on: string | null } | null>(null)
+  const [emojiPick, setEmojiPick] = useState<{ x: number; y: number; title: string; list: string[]; cols: number; current: string[]; pick: (e: string) => void } | null>(null)
   const pressT = useRef(0)
   const [present, setPresent] = useState<number | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -1390,7 +1391,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
           'sep' as const,
           { label: 'Sticky note here', icon: 'sticky', hint: 'N', onSelect: () => addSticky({ x: snapV(m.p.x), y: snapV(m.p.y) }) },
           { label: 'Text here', icon: 'text', hint: 'T', onSelect: () => { const o = make('text', { x: m.p.x, y: m.p.y - 18, w: 320, h: 36 }, { text: '', size: 24 }); commit([o]); setSel(new Set([o.id])); setEditing(o.id) } },
-          { label: 'Sticker here', icon: 'sticker', submenu: STICKERS.slice(0, 16).map(e => ({ label: <span className="wb-react-item">{e}</span>, onSelect: () => { const o = make('sticker', { x: m.p.x - 60, y: m.p.y - 60, w: 120, h: 120 }, { emoji: e }); commit([o]); setSel(new Set([o.id])) } })) },
+          { label: 'Sticker here…', icon: 'sticker', onSelect: () => setEmojiPick({ x: ctxMenu!.x, y: ctxMenu!.y, title: 'Sticker', list: STICKERS, cols: 8, current: [], pick: e => { const o = make('sticker', { x: m.p.x - 60, y: m.p.y - 60, w: 120, h: 120 }, { emoji: e }); commit([o]); setSel(new Set([o.id])) } }) },
         ] : []),
         ...(!guest || canEdit ? [{ label: 'Comment here', icon: 'comment', hint: 'C', onSelect: () => { setOpenThread(null); setNewThread({ object_id: '', x: Math.round(m.p.x), y: Math.round(m.p.y) }) } }] : []),
         'sep',
@@ -1420,8 +1421,8 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
       ] : []),
       'sep',
       ...(canEdit && coloured && !locked ? [{ label: 'Colour', icon: 'palette', submenu: STICKY_KEYS.map(c => ({ label: <span className="wb-menu-colour"><i style={{ background: STICKY[c].bg }} />{STICKY[c].name}</span>, checked: !!one && (one.data.color || one.data.fill) === c, onSelect: () => colourAll(c) })) }] : []),
-      ...(canEdit && one?.kind === 'sticker' && !locked ? [{ label: 'Change the sticker', icon: 'sticker', submenu: STICKERS.map(e => ({ label: <span className="wb-react-item">{e}</span>, checked: one.data.emoji === e, onSelect: () => restyle({ emoji: e }) })) }] : []),
-      ...(reactable ? [{ label: 'React', icon: 'smile', submenu: REACTIONS.map(e => ({ label: <span className="wb-react-item">{e}</span>, checked: (reactions[one!.id] || []).some(r => r.emoji === e && r.voters.includes(me.voter)), onSelect: () => react(one!.id, e) })) }] : []),
+      ...(canEdit && one?.kind === 'sticker' && !locked ? [{ label: 'Change the sticker…', icon: 'sticker', onSelect: () => setEmojiPick({ x: ctxMenu!.x, y: ctxMenu!.y, title: 'Change the sticker', list: STICKERS, cols: 8, current: [one.data.emoji || ''], pick: e => restyle({ emoji: e }) }) }] : []),
+      ...(reactable ? [{ label: 'React…', icon: 'smile', onSelect: () => setEmojiPick({ x: ctxMenu!.x, y: ctxMenu!.y, title: 'React', list: REACTIONS, cols: 4, current: (reactions[one!.id] || []).filter(r => r.voters.includes(me.voter)).map(r => r.emoji), pick: e => react(one!.id, e) }) }] : []),
       ...(canEdit && taggable.length && !locked ? [{ label: 'Tags', icon: 'tag', submenu: [
         ...allTags.map(t => { const all = taggable.every(o => o.data.tags?.includes(t)); return { label: t, checked: all, onSelect: () => toggleTag(t, !all) } }),
         ...(allTags.length ? ['sep' as const] : []),
@@ -1547,7 +1548,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
   }
   // the + buttons above a single picked note or shape need room too
   const plusShown = canEdit && selList.length === 1 && ['sticky', 'shape'].includes(selList[0].kind) && !selList[0].data.locked && cam.z > 0.25
-  const ctxPos = selBox && !editing && !ctxMenu && present === null && !dragRef.current ? barAt(selBox, 160, plusShown ? 40 : 0) : null
+  const ctxPos = selBox && !editing && !ctxMenu && !emojiPick && present === null && !dragRef.current ? barAt(selBox, 160, plusShown ? 40 : 0) : null
 
   const H = useRef({ editDone })
   H.current = { editDone }
@@ -1833,6 +1834,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
         return <FormatBar pos={pos} size={o.data.size || 0} onSize={v => { const cur = objsRef.current.get(o.id); if (cur) commit([withData(cur, { size: v || undefined })]) }} />
       })()}
       <FloatLayer floats={floats} />
+      {emojiPick && <EmojiPop {...emojiPick} onClose={() => setEmojiPick(null)} />}
       {ctxMenu && <ContextMenu at={{ x: ctxMenu.x, y: ctxMenu.y }} items={menuItems(ctxMenu)} width={260} onClose={() => setCtxMenu(null)} />}
 
       {/* ---- panels */}
@@ -1851,6 +1853,35 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
       {confirmDelete && <Confirm title="Delete this board?" message={<>“{board.title}” and everything on it goes, for everyone on it. This cannot be undone.</>} confirmLabel="Delete" onCancel={() => setConfirmDelete(false)}
         onConfirm={async () => { try { await api.del(conn.base); navigate('/') } catch (e) { toast(errMsg(e), 'err') } }} />}
       {shortcuts && <BoardShortcuts onClose={() => setShortcuts(false)} />}
+    </div>
+  )
+}
+
+/** A grid of emoji at the pointer (from the right-click menu). */
+function EmojiPop({ x, y, title, list, cols, current, pick, onClose }: { x: number; y: number; title: string; list: string[]; cols: number; current: string[]; pick: (e: string) => void; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState({ left: x, top: y })
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    setPos({ left: clamp(x, 8, window.innerWidth - r.width - 8), top: clamp(y, 8, window.innerHeight - r.height - 8) })
+    el.querySelector('button')?.focus()
+  }, [x, y])
+  useEffect(() => {
+    const down = (e: PointerEvent) => { if (!ref.current?.contains(e.target as Node)) onClose() }
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); onClose() } }
+    window.addEventListener('pointerdown', down, true)
+    window.addEventListener('keydown', key, true)
+    return () => { window.removeEventListener('pointerdown', down, true); window.removeEventListener('keydown', key, true) }
+  }, [onClose])
+  return (
+    <div ref={ref} className="wb-emoji-pop" style={pos} role="dialog" aria-label={title} onPointerDown={e => e.stopPropagation()}>
+      <div className="wb-emoji-pop-h">{title}</div>
+      <div className="wb-emoji" style={{ gridTemplateColumns: `repeat(${cols}, 36px)` }}>
+        {list.map(e => <button key={e} type="button" className={current.includes(e) ? 'on' : ''} aria-label={e} onClick={() => { pick(e); onClose() }}>{e}</button>)}
+      </div>
+      {title === 'React' && current.length > 0 && <p className="muted small">Yours are marked — click one again to take it back.</p>}
     </div>
   )
 }

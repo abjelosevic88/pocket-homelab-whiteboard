@@ -583,3 +583,9 @@ span.chip { cursor: default; }
 .wb-sticker-btn { font-size: 18px; gap: 4px; padding: 0 6px; }
 .wb-menu-colour { display: inline-flex; align-items: center; gap: 8px; }
 .wb-menu-colour i { width: 14px; height: 14px; border-radius: 3px; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .12); }
+
+.wb-emoji-pop { position: fixed; z-index: 80; padding: 8px 10px 10px; border-radius: 12px; background: var(--raised); border: 1px solid var(--border); box-shadow: var(--shadow-lg); display: flex; flex-direction: column; gap: 6px; max-width: 340px; }
+.wb-emoji-pop-h { font-size: 11px; font-weight: 650; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); padding: 0 2px; }
+.wb-emoji-pop p { margin: 0; max-width: 170px; }
+.wb-emoji button.on { background: color-mix(in srgb, var(--wb-sel) 16%, transparent); box-shadow: inset 0 0 0 1.5px var(--wb-sel); }
+.wb-emoji button:focus-visible { outline: 2px solid var(--wb-sel); outline-offset: -2px; }
