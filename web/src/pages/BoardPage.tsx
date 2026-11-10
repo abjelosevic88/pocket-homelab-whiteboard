@@ -1260,7 +1260,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
       if (k === '-') { zoomBy(0.8); return }
       const tools: Record<string, Tool> = { v: 'select', h: 'hand', n: 'sticky', t: 'text', s: 'shape', r: 'shape', l: 'line', p: 'pen', e: 'eraser', f: 'frame', c: 'comment', k: 'sticker' }
       if (k === 'c' && guest && !canEdit) return
-      if (tools[k] && (canEdit || k === 'v' || k === 'h' || k === 'c')) { setTool(tools[k]); return }
+      if (tools[k] && (canEdit || k === 'v' || k === 'h' || k === 'c')) { setTool(tools[k]); setFlyout(['sticker', 'shape', 'line', 'pen'].includes(tools[k]) ? tools[k] : null); return }
       if (k === 'i' && canEdit) { pickImage(); return }
       if (k === '?') { setPanel(null); setShortcuts(true) }
     }
@@ -1416,11 +1416,13 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
   // floating bars sit just above what they are for (below it when there is no room); the board
   // area starts under the top bar, so its offset is added
   const vpTop = vpRef.current?.offsetTop ?? 52
-  const barAt = (r: Rect, half = 160) => {
-    const above = cam.y + r.y * cam.z - 50
-    return { left: clamp(cam.x + (r.x + r.w / 2) * cam.z, half, vpSize.w - half), top: vpTop + (above < 8 ? Math.min(vpSize.h - 50, cam.y + (r.y + r.h) * cam.z + 10) : above) }
+  const barAt = (r: Rect, half = 160, room = 0) => {
+    const above = cam.y + r.y * cam.z - 50 - room
+    return { left: clamp(cam.x + (r.x + r.w / 2) * cam.z, half, vpSize.w - half), top: vpTop + (above < 8 ? Math.min(vpSize.h - 50, cam.y + (r.y + r.h) * cam.z + 10 + room) : above) }
   }
-  const ctxPos = selBox && !editing && present === null && !dragRef.current ? barAt(selBox) : null
+  // the + buttons above a single picked note or shape need room too
+  const plusShown = canEdit && selList.length === 1 && ['sticky', 'shape'].includes(selList[0].kind) && !selList[0].data.locked && cam.z > 0.25
+  const ctxPos = selBox && !editing && present === null && !dragRef.current ? barAt(selBox, 160, plusShown ? 40 : 0) : null
 
   const H = useRef({ editDone })
   H.current = { editDone }
@@ -1525,7 +1527,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
             const r = reactions[o.id]
             if (!r?.length) return null
             return (
-              <div key={'r' + o.id} className="wb-react-at" style={{ left: o.x, top: o.y + o.h, ['--vs' as string]: `${clamp(1 / cam.z, 0.6, 3)}` }}>
+              <div key={'r' + o.id} className="wb-react-at" style={{ left: o.x + o.w, top: o.y + o.h, ['--vs' as string]: `${clamp(1 / cam.z, 0.6, 3)}` }}>
                 {r.map(x => <button key={x.emoji} type="button" className={`wb-react ${x.voters.includes(me.voter) ? 'mine' : ''}`} data-react={x.emoji} data-obj={o.id} title={x.names.join(', ')}>{x.emoji}<b>{x.names.length}</b></button>)}
               </div>
             )
@@ -1748,7 +1750,7 @@ function ContextBar({ pos, list, canEdit, guest, onColour, onStyle, onFront, onB
   onGroup: () => void; onUngroup: () => void; allTags: string[]; onTag: (t: string, add: boolean) => void; onByTag: () => void
   onReact: (e: string) => void; myReactions: string[]; onComment: () => void
 }) {
-  const [open, setOpen] = useState<'colour' | 'shape' | 'ink' | 'tags' | 'react' | 'size' | null>(null)
+  const [open, setOpen] = useState<'colour' | 'shape' | 'ink' | 'tags' | 'react' | 'size' | 'emoji' | null>(null)
   const grouped = list.length > 1 && list.every(o => o.data.group && o.data.group === list[0].data.group)
   const anyGroup = list.some(o => o.data.group)
   const taggable = list.filter(o => o.kind === 'sticky' || o.kind === 'shape')
@@ -1809,6 +1811,12 @@ function ContextBar({ pos, list, canEdit, guest, onColour, onStyle, onFront, onB
             {kinds.has('shape') && <button type="button" className="wb-sw none" title="No fill" aria-label="No fill" onClick={() => { onStyle({ fill: 'none' }, o => o.kind === 'shape'); setOpen(null) }} />}
             {(kinds.has('shape') && !kinds.has('sticky') ? [...STICKY_KEYS, 'white'] : STICKY_KEYS).map(c => <button key={c} type="button" className={`wb-sw ${c === cur ? 'on' : ''}`} style={{ background: STICKY[c].bg }} title={STICKY[c].name} aria-label={STICKY[c].name} onClick={() => { onColour(c); setOpen(null) }} />)}
           </div>}
+        </div>
+      )}
+      {list.every(o => o.kind === 'sticker') && !locked && (
+        <div className="wb-ctx-drop">
+          <button type="button" className="btn ghost sm wb-sticker-btn" onClick={() => setOpen(open === 'emoji' ? null : 'emoji')} title="Change the sticker" aria-label="Change the sticker">{one?.data.emoji || '⭐'}<Icon name="chevron-down" size={12} /></button>
+          {open === 'emoji' && <div className="wb-ctx-pop"><EmojiGrid list={STICKERS} cols={8} onPick={e => { onStyle({ emoji: e }, o => o.kind === 'sticker'); setOpen(null) }} /></div>}
         </div>
       )}
       {one?.kind === 'shape' && !locked && (
