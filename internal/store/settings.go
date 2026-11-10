@@ -17,7 +17,7 @@ func (s *Store) defaults() Settings {
 	return Settings{Title: DefaultTitle, DateFormat: "auto", TimeFormat: "auto", WeekStart: 1,
 		Background: "dots", StickyColor: "light-yellow", Snap: false, Cursors: true, WheelZoom: false,
 		NotesFolder: "Whiteboards", FilesFolder: "Whiteboards", AIHelp: true,
-		NotifyShared: true, NotifyFormat: "apprise", Conns: map[string]Conn{}, AIProvider: "auto"}
+		NotifyShared: true, NotifyMentions: true, NotifyComments: true, NotifyFormat: "apprise", Conns: map[string]Conn{}, AIProvider: "auto"}
 }
 
 // Every setting is stored as its JSON value under its JSON name, so adding a

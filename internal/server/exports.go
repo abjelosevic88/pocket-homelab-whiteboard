@@ -201,7 +201,7 @@ func (s *Server) importDoc(ctx context.Context, u *store.User, doc *exportDoc) (
 			for i := range objs {
 				ops[i] = store.Op{Op: "put", ID: objs[i].ID, Obj: &objs[i]}
 			}
-			if _, err := s.store.ApplyOps(ctx, b.ID, ops, &u.ID, s.actorName(u)); err != nil {
+			if _, err := s.store.ApplyOps(ctx, b.ID, ops, &u.ID, s.actorName(u), ""); err != nil {
 				return nil, err
 			}
 		}

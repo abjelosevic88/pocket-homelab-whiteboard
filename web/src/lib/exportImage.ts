@@ -49,6 +49,11 @@ export async function boardPNG(objs: Obj[], all: Map<string, Obj>, opts: { scale
   for (const o of sorted) {
     const d = o.data
     c.save()
+    if (d.rot && o.kind !== 'line' && o.kind !== 'pen' && o.kind !== 'frame') {
+      c.translate(o.x + o.w / 2, o.y + o.h / 2)
+      c.rotate(d.rot * Math.PI / 180)
+      c.translate(-(o.x + o.w / 2), -(o.y + o.h / 2))
+    }
     switch (o.kind) {
       case 'frame': {
         c.fillStyle = tintSolid(d.fill)
@@ -125,6 +130,13 @@ export async function boardPNG(objs: Obj[], all: Map<string, Obj>, opts: { scale
         c.lineJoin = 'round'
         if (d.highlight) c.globalAlpha = 0.35
         c.stroke(new Path2D(penPath(d.points || [])))
+        break
+      }
+      case 'sticker': {
+        c.font = `${Math.min(o.w, o.h) * 0.86}px ${FONT}`
+        c.textAlign = 'center'
+        c.textBaseline = 'middle'
+        c.fillText(d.emoji || '⭐', o.x + o.w / 2, o.y + o.h / 2 + o.h * 0.04)
         break
       }
       case 'image': {

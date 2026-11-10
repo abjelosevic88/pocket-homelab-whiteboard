@@ -17,7 +17,7 @@ type TabId = 'general' | 'notifications' | 'apps' | 'ai' | 'profile' | 'people' 
 
 const TABS: { id: TabId; label: string; icon: string; sub: string }[] = [
   { id: 'general', label: 'General', icon: 'settings', sub: 'How a new board starts and how the board behaves under your mouse — and dates and the app title.' },
-  { id: 'notifications', label: 'Notifications', icon: 'bell', sub: 'What reaches your phone: someone putting you on a board.' },
+  { id: 'notifications', label: 'Notifications', icon: 'bell', sub: 'What reaches your phone: someone putting you on a board, mentioning you, or replying to you.' },
   { id: 'apps', label: 'Connected apps', icon: 'link', sub: 'Tasks, Notes, Chat and Files.' },
   { id: 'ai', label: 'AI', icon: 'sparkles', sub: 'Who helps you: Pocket AI through Core, or your own OpenAI key.' },
   { id: 'profile', label: 'Profile', icon: 'user', sub: 'Your name, email and password.' },
@@ -157,6 +157,8 @@ function Notifications() {
       </Section>
       <Section title="What to push" icon="bell">
         <SettingRow title="Someone puts you on a board" help="With a link straight to it."><Switch checked={f.notify_shared} onChange={v => setF({ ...f, notify_shared: v })} label="Shared" /></SettingRow>
+        <SettingRow title="Someone @mentions you in a comment" help="With the comment and a link to it."><Switch checked={f.notify_mentions} onChange={v => setF({ ...f, notify_mentions: v })} label="Mentions" /></SettingRow>
+        <SettingRow title="Someone replies in a thread you are in"><Switch checked={f.notify_comments} onChange={v => setF({ ...f, notify_comments: v })} label="Replies" /></SettingRow>
       </Section>
       <div className="row wrap">
         <button type="button" className="btn primary" onClick={() => save()} disabled={busy}>Save changes</button>

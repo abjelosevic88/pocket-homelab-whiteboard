@@ -51,6 +51,10 @@ func (s *Server) Router() http.Handler {
 			r.Post("/public/b/{key}/vote", s.handlePublicVote)
 			r.Get("/public/b/{key}/uploads/{id}", s.handlePublicUpload)
 			r.Post("/public/b/{key}/uploads", s.handlePublicNewUpload)
+			r.Get("/public/b/{key}/comments", s.handlePublicComments)
+			r.Post("/public/b/{key}/comments", s.handlePublicAddComment)
+			r.Post("/public/b/{key}/react", s.handlePublicReact)
+			r.Post("/public/b/{key}/float", s.handlePublicFloat)
 		})
 
 		// uploads, imports and AI can take longer
@@ -109,6 +113,19 @@ func (s *Server) Router() http.Handler {
 				r.Post("/boards/{id}/vote", s.handleCastVote)
 				r.Get("/boards/{id}/votes", s.handleVotes)
 				r.Post("/boards/{id}/chat", s.handleShareChat)
+				r.Put("/boards/{id}/private", s.handlePrivate)
+				r.Post("/boards/{id}/summon", s.handleSummon)
+				r.Post("/boards/{id}/float", s.handleFloat)
+				r.Post("/boards/{id}/react", s.handleReact)
+				r.Get("/boards/{id}/comments", s.handleComments)
+				r.Post("/boards/{id}/comments", s.handleAddComment)
+				r.Put("/boards/{id}/comments/{cid}", s.handleUpdateComment)
+				r.Delete("/boards/{id}/comments/{cid}", s.handleDeleteComment)
+				r.Get("/boards/{id}/history", s.handleHistory)
+				r.Post("/boards/{id}/versions", s.handleSaveVersion)
+				r.Get("/boards/{id}/versions/{vid}", s.handleVersion)
+				r.Post("/boards/{id}/versions/{vid}/restore", s.handleRestoreVersion)
+				r.Post("/boards/{id}/trash/{tid}/restore", s.handleRestoreTrashed)
 
 				// the other Pocket apps
 				r.Get("/apps", s.handleApps)

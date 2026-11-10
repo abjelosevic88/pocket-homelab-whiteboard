@@ -104,6 +104,25 @@ func (h *hub) send(bid int64, except string, ev map[string]any) {
 	}
 }
 
+// sendVoter delivers an event only to one person's tabs (their private notes).
+func (h *hub) sendVoter(bid int64, voter, except string, ev map[string]any) {
+	b, err := json.Marshal(ev)
+	if err != nil {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for sb := range h.subs[bid] {
+		if sb.voter != voter || (except != "" && sb.client == except) {
+			continue
+		}
+		select {
+		case sb.ch <- b:
+		default:
+		}
+	}
+}
+
 // stream keeps one board's event stream open for a person or a guest.
 func (s *Server) stream(w http.ResponseWriter, r *http.Request, a *actor) {
 	fl, ok := w.(http.Flusher)
@@ -151,6 +170,12 @@ func (s *Server) cursor(w http.ResponseWriter, r *http.Request, a *actor) {
 		Y      float64  `json:"y"`
 		Sel    []string `json:"sel"`
 		Gone   bool     `json:"gone"`
+		View   *struct {
+			X float64 `json:"x"`
+			Y float64 `json:"y"`
+			W float64 `json:"w"`
+			H float64 `json:"h"`
+		} `json:"view"`
 	}
 	if err := decode(r, &in); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid json")
@@ -163,8 +188,11 @@ func (s *Server) cursor(w http.ResponseWriter, r *http.Request, a *actor) {
 		writeErr(w, http.StatusBadRequest, "bad position")
 		return
 	}
-	s.hub.send(a.b.ID, in.Client, map[string]any{"type": "cursor", "client": in.Client, "x": in.X, "y": in.Y, "sel": in.Sel, "gone": in.Gone,
-		"name": a.name, "colour": a.colour()})
+	ev := map[string]any{"type": "cursor", "client": in.Client, "x": in.X, "y": in.Y, "sel": in.Sel, "gone": in.Gone, "name": a.name, "colour": a.colour(), "voter": a.voter()}
+	if v := in.View; v != nil && finite(v.X) && finite(v.Y) && finite(v.W) && finite(v.H) && v.W > 0 && v.H > 0 {
+		ev["view"] = v
+	}
+	s.hub.send(a.b.ID, in.Client, ev)
 	w.WriteHeader(http.StatusNoContent)
 }
 

@@ -18,7 +18,14 @@
 
 - **Sticky notes** in twelve colours whose text shrinks to fit; double-click anywhere for a new one, Tab for the next one beside it, the **+** on a picked note for one next to it. Paste a list and every line becomes a note.
 - **Text, shapes** (rectangle, rounded, circle, diamond, triangle, hexagon, slanted, star), **lines and arrows** (straight, elbow, curved) that stay joined to what they connect, **frames** that carry their contents, a **pen** and highlighter with an eraser, and **pictures** (paste, drop or pick).
-- **Together, live**: changes, pointers and what each person has picked show at once; who is here sits in the top bar.
+- **Together, live**: changes, pointers and what each person has picked show at once; who is here sits in the top bar. **Follow** someone's view, or **bring everyone** to yours.
+- **Connection dots**: hover a note or shape and drag an arrow straight out of it (or drag the **+** of a picked one).
+- **Formatted text** in notes and shapes — bold, italic, underline, strike, lists, links — and a fixed text size per note.
+- **Group** (⌘G) and **turn** things; **find** on the board (⌘F, `#tag` for tags); **tags** on notes and sorting into frames by tag.
+- **Comments** pinned to a spot or a note, with replies, **@mentions** (a push to the person) and resolve.
+- **Private mode** for workshops: everyone writes hidden notes, then someone reveals them all at once.
+- **Reactions** on notes, **stickers**, and emoji that float up everyone's screen.
+- **History**: the board is kept as it was before the first change after a quiet ten minutes (or when you keep a moment) — go back to any version, or put back something deleted.
 - **Voting** with dots (counts hidden until the end if you like) and results ranked; a **timer** everyone sees, with a chime at the end; **present** frame by frame.
 - **Lines up** with the things around it as you drag (or snaps to the grid); resize, lock, bring to front, arrange in a grid, sort by colour, undo and redo.
 - **Templates**: retrospective, start-stop-continue, brainstorm, kanban, SWOT, week plan, mind map, journey map.

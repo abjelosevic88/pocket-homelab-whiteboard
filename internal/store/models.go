@@ -37,6 +37,7 @@ type Board struct {
 	TimerEnds  string          `json:"timer_ends"`
 	TimerSecs  int             `json:"timer_secs"`
 	Vote       json.RawMessage `json:"vote"`
+	Private    json.RawMessage `json:"private"`
 	Version    int64           `json:"version"`
 	Source     string          `json:"source,omitempty"`
 	ExtID      string          `json:"ext_id,omitempty"`
@@ -61,6 +62,52 @@ type Vote struct {
 	Hide      bool   `json:"hide"` // counts hidden until the round ends
 	StartedAt string `json:"started_at,omitempty"`
 	StartedBy string `json:"started_by,omitempty"`
+}
+
+// Private is a board's private mode: notes made while it is on stay with
+// whoever made them until someone reveals them.
+type Private struct {
+	On        bool   `json:"on"`
+	By        string `json:"by,omitempty"`
+	StartedAt string `json:"started_at,omitempty"`
+}
+
+// Comment is one comment; a thread is a first comment and its replies.
+type Comment struct {
+	ID        int64   `json:"id"`
+	BoardID   int64   `json:"board_id"`
+	ParentID  *int64  `json:"parent_id"`
+	ObjectID  string  `json:"object_id"`
+	X         float64 `json:"x"`
+	Y         float64 `json:"y"`
+	UserID    *int64  `json:"user_id"`
+	Author    string  `json:"author"`
+	Voter     string  `json:"voter"`
+	Body      string  `json:"body"`
+	Mentions  []int64 `json:"mentions"`
+	Resolved  bool    `json:"resolved"`
+	CreatedAt string  `json:"created_at"`
+	UpdatedAt string  `json:"updated_at"`
+}
+
+// Version is the board as it was at one moment.
+type Version struct {
+	ID        int64  `json:"id"`
+	BoardID   int64  `json:"board_id"`
+	Name      string `json:"name"`
+	Who       string `json:"who"`
+	N         int    `json:"n"`
+	CreatedAt string `json:"created_at"`
+}
+
+// Trashed is something deleted from a board, to put back.
+type Trashed struct {
+	ID        int64  `json:"id"`
+	ObjectID  string `json:"object_id"`
+	Kind      string `json:"kind"`
+	Text      string `json:"text"`
+	DeletedBy string `json:"deleted_by"`
+	DeletedAt string `json:"deleted_at"`
 }
 
 // Member is a person on this box on a board.
@@ -90,10 +137,12 @@ type Object struct {
 	UpdatedBy string          `json:"updated_by"`
 	CreatedAt string          `json:"created_at"`
 	UpdatedAt string          `json:"updated_at"`
+	Hidden    bool            `json:"hidden,omitempty"` // private to whoever made it (private mode)
+	HiddenBy  string          `json:"-"`
 }
 
 // Kinds are the things a board can hold.
-var Kinds = []string{"sticky", "text", "shape", "line", "frame", "pen", "image"}
+var Kinds = []string{"sticky", "text", "shape", "line", "frame", "pen", "image", "sticker"}
 
 // Upload is a picture put on a board.
 type Upload struct {
@@ -142,9 +191,11 @@ type Settings struct {
 	AIHelp      bool   `json:"ai_help"`
 
 	// Notifications.
-	NotifyShared bool   `json:"notify_shared"` // someone put you on a board
-	NotifyURL    string `json:"notify_url"`
-	NotifyFormat string `json:"notify_format"` // apprise | ntfy | json
+	NotifyShared   bool   `json:"notify_shared"`   // someone put you on a board
+	NotifyMentions bool   `json:"notify_mentions"` // someone @mentioned you in a comment
+	NotifyComments bool   `json:"notify_comments"` // someone replied in a thread you are in
+	NotifyURL      string `json:"notify_url"`
+	NotifyFormat   string `json:"notify_format"` // apprise | ntfy | json
 
 	// Each sibling Pocket app, by slug.
 	Conns map[string]Conn `json:"conns"`

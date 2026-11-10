@@ -45,7 +45,7 @@ func (s *Server) seedDemo(ctx context.Context, owner int64) error {
 		}
 		for by, ops := range groups {
 			id := by
-			_, _ = s.store.ApplyOps(ctx, bid, ops, &id, who[by])
+			_, _ = s.store.ApplyOps(ctx, bid, ops, &id, who[by], "")
 		}
 	}
 	board := func(uid int64, title, about, tpl, bg string, daysAgo int) *store.Board {

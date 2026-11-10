@@ -166,6 +166,9 @@ func (s *Server) janitor(ctx context.Context) {
 		case <-tick.C:
 			n++
 			s.timersDone(ctx)
+			if n%1440 == 30 {
+				s.store.PurgeHistory(ctx, time.Now().AddDate(0, 0, -90).UTC().Format(time.RFC3339Nano))
+			}
 			if n%60 == 5 {
 				if k, err := s.store.PurgeUploads(ctx, time.Now().Add(-24*time.Hour).UTC().Format(time.RFC3339Nano)); err == nil && k > 0 {
 					s.log.Info("removed unused pictures", "n", k)

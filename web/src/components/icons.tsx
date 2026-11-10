@@ -1,5 +1,13 @@
 // Stroke icons (24-grid, 1.75 stroke) drawn inline — no icon dependency.
 const P: Record<string, string> = {
+  comment: 'M21 11.5a8.4 8.4 0 0 1-9 8.4 9 9 0 0 1-3.8-.8L3 21l1.9-5.2A8.4 8.4 0 0 1 3 11.5 8.5 8.5 0 0 1 12 3a8.5 8.5 0 0 1 9 8.5z',
+  sticker: 'M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9.5L21 14.5V5a2 2 0 0 0-2-2zM14 21v-5a2 2 0 0 1 2-2h5M8.5 9.5h.01M15.5 9.5h.01M8.5 14a4.5 4.5 0 0 0 3.5 1.5',
+  group: 'M3 3h7v7H3zM14 14h7v7h-7zM10 6.5h4v4M14 17.5h-4v-4',
+  ungroup: 'M3 3h7v7H3zM14 14h7v7h-7z',
+  rotate: 'M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5',
+  underline: 'M6 4v6a6 6 0 0 0 12 0V4M4 21h16',
+  'eye-follow': 'M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
+  magnet: 'M6 15a6 6 0 0 0 12 0V4h-4v11a2 2 0 0 1-4 0V4H6zM6 8h4M14 8h4',
   cursor: 'M4 3l7 17 2.5-7.5L21 10z',
   sticky: 'M4 4h16v10l-6 6H4zM14 20v-6h6',
   square: 'M4 4h16v16H4z',

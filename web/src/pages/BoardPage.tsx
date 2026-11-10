@@ -6,20 +6,23 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ApiError, V1, api } from '../lib/api'
 import { useApp } from '../lib/app-context'
 import { useAppState, DataProvider } from '../lib/data'
-import type { Board, BoardDoc, Member, Obj, ObjData, Op, Person, ShapeForm, Votes } from '../lib/types'
+import type { Board, BoardDoc, Comment, Member, Obj, ObjData, Op, Person, PrivateCount, Reaction, ShapeForm, View, Votes } from '../lib/types'
 import {
   INKS, STICKY, STICKY_KEYS, clearFit, SHAPES, STICKY_SIZE, center, framesInOrder, frameOf, inside, linePath, nearLine, newID, overlaps, paper, rectOf, textOf, union, withData,
   type Pt, type Rect,
 } from '../lib/board'
 import { boardPNG } from '../lib/exportImage'
 import { uploadPicture } from '../lib/upload'
-import { ObjectView, VoteBadge } from '../components/board/ObjectView'
+import { ObjectView, VoteBadge, tagColour, type EditResult } from '../components/board/ObjectView'
+import { EmojiGrid, FindBar, FloatLayer, FormatBar, REACTIONS, STICKERS, TEXT_SIZES, TagPicker, type Float } from '../components/board/Extras'
+import { CommentsPanel, NewThread, ThreadCard, pinAt, threadsOf, type MentionPerson } from '../components/board/Comments'
+import { HistoryPanel } from '../components/board/History'
 import { AIPanel, ChatPicker, Countdown, FramesPanel, SharePanel, TimerPanel, VotePanel, chime } from '../components/board/Panels'
 import { Icon } from '../components/icons'
 import { AskButton } from '../components/AskButton'
 import { Avatar, Confirm, Loading, type MenuItem, MenuButton, Modal, Segmented, errMsg, useIsMobile, useToast } from '../components/ui'
 
-type Tool = 'select' | 'hand' | 'sticky' | 'text' | 'shape' | 'line' | 'pen' | 'eraser' | 'frame'
+type Tool = 'select' | 'hand' | 'sticky' | 'text' | 'shape' | 'line' | 'pen' | 'eraser' | 'frame' | 'comment' | 'sticker'
 interface Cam { x: number; y: number; z: number }
 type State = [string, Obj | null][]
 
@@ -128,8 +131,11 @@ type Drag =
   | { mode: 'pen'; id: string; origin: Pt; pts: number[][]; before: State }
   | { mode: 'erase'; before: State }
   | { mode: 'pinch'; d0: number; m0: Pt; cam: Cam }
+  | { mode: 'rotate'; id: string; c: Pt; a0: number; r0: number; before: State }
+  | { mode: 'plus'; dir: string; sx: number; sy: number }
 
-interface Cursor { x: number; y: number; name: string; colour: string; sel: string[]; at: number }
+interface Cursor { x: number; y: number; name: string; colour: string; sel: string[]; at: number; view?: View; voter?: string }
+const CONNECTABLE = new Set(['sticky', 'shape', 'text', 'image', 'sticker'])
 
 function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; reload: () => Promise<BoardDoc> }) {
   const { toast } = useToast()
@@ -178,7 +184,23 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
   const [guides, setGuides] = useState<{ x?: number; y?: number }[]>([])
   const [hoverTarget, setHoverTarget] = useState<string | null>(null)
   const [cursors, setCursors] = useState<Map<string, Cursor>>(new Map())
-  const [panel, setPanel] = useState<'share' | 'vote' | 'timer' | 'frames' | 'ai' | 'chat' | null>(null)
+  const [panel, setPanel] = useState<'share' | 'vote' | 'timer' | 'frames' | 'ai' | 'chat' | 'comments' | 'history' | null>(null)
+  // working together
+  const [reactions, setReactions] = useState<Record<string, Reaction[]>>(initial.reactions || {})
+  const [privCounts, setPrivCounts] = useState<PrivateCount[]>(initial.private_counts || [])
+  const [comments, setComments] = useState<Comment[]>([])
+  const [mentionPeople, setMentionPeople] = useState<MentionPerson[]>([])
+  const [openThread, setOpenThread] = useState<number | null>(null)
+  const [newThread, setNewThread] = useState<{ object_id: string; x: number; y: number } | null>(null)
+  const [showResolved, setShowResolved] = useState(false)
+  const [historyKey, setHistoryKey] = useState(0)
+  const [hoverId, setHoverId] = useState<string | null>(null)
+  const [find, setFind] = useState<{ q: string; i: number } | null>(null)
+  const [floats, setFloats] = useState<Float[]>([])
+  const [following, setFollowing] = useState<string | null>(null)
+  const followRef = useRef<string | null>(null)
+  followRef.current = following
+  const [sticker, setSticker] = useState('⭐')
   const [present, setPresent] = useState<number | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -270,6 +292,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
       const keep = new Map([...pending.current.values()].filter(o => o.op === 'put').map(o => [(o as { obj: Obj }).obj.id, (o as { obj: Obj }).obj]))
       setObjs(() => { const n = new Map(d.objects.map(o => [o.id, o])); for (const [id, o] of keep) n.set(id, o); return n })
       setBoard(d.board); setVotes(d.votes); setPeople(d.people)
+      setReactions(d.reactions || {}); setPrivCounts(d.private_counts || [])
       if (d.members) setMembers(d.members)
     } catch { /* the stream reconnects and tries again */ }
   }
@@ -313,7 +336,8 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
       }
       case 'cursor': {
         const c = ev as unknown as Cursor & { client: string; gone?: boolean }
-        setCursors(m => { const n = new Map(m); if (c.gone) n.delete(c.client); else n.set(c.client, { x: c.x, y: c.y, name: c.name, colour: c.colour, sel: c.sel || [], at: Date.now() }); return n })
+        setCursors(m => { const n = new Map(m); if (c.gone) n.delete(c.client); else n.set(c.client, { x: c.x, y: c.y, name: c.name, colour: c.colour, sel: c.sel || [], at: Date.now(), view: c.view || m.get(c.client)?.view, voter: c.voter }); return n })
+        if (c.view && followRef.current === c.client) setCam(camFor(c.view, 0, 8))
         break
       }
       case 'gone': setCursors(m => { const n = new Map(m); n.delete(ev.client as string); return n }); break
@@ -321,6 +345,23 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
       case 'board': setBoard(b => ({ ...b, ...(ev.board as Board), share_key: b.share_key, role: b.role })); break
       case 'votes': loadVotes(); break
       case 'deleted': toast('This board was deleted'); if (!guest) navigate('/'); break
+      case 'reactions': setReactions(r => ({ ...r, [ev.object_id as string]: ev.reactions as Reaction[] })); break
+      case 'private_counts': setPrivCounts(ev.counts as PrivateCount[]); break
+      case 'comments': loadComments(); break
+      case 'reload':
+        resync()
+        setHistoryKey(k => k + 1)
+        if (ev.why === 'revealed') toast(`${ev.by} revealed the private notes`)
+        else if (ev.why === 'restored') toast(`${ev.by} took the board back to an earlier version`)
+        break
+      case 'float': addFloat(ev.emoji as string, ev.name as string, ev.colour as string); break
+      case 'summon': {
+        const v = ev.view as View
+        animateTo(camFor(v, 0, 8))
+        setFollowing(ev.client as string)
+        toast(`${ev.by} brought everyone here — you follow their view until you move`)
+        break
+      }
     }
   }
   useEffect(() => {
@@ -342,6 +383,47 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
   }, [conn]) // eslint-disable-line react-hooks/exhaustive-deps
   // once the board font has loaded, fit every note's text again with it
   useEffect(() => { document.fonts?.ready.then(() => { clearFit(); setObjsState(m => new Map(m)) }) }, [])
+
+  // ---- comments, reactions, floating emoji, following
+  const req = useCallback(<T,>(method: string, path: string, body?: unknown) => call<T>(conn, method, path, body), [conn])
+  const loadComments = () => {
+    req<{ comments: Comment[]; people: MentionPerson[] }>('GET', '/comments').then(r => { setComments(r.comments); if (r.people?.length) setMentionPeople(r.people) }).catch(() => {})
+  }
+  useEffect(() => {
+    loadComments()
+    const c = Number(params.get('c'))
+    if (c) { setOpenThread(c); setPanel(null) }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  const threads = useMemo(() => threadsOf(comments), [comments])
+  const floatN = useRef(0)
+  function addFloat(emoji: string, name: string, colour: string) {
+    const id = ++floatN.current
+    setFloats(f => [...f.slice(-24), { id, emoji, name, colour, x: 8 + Math.random() * 30 }])
+    window.setTimeout(() => setFloats(f => f.filter(x => x.id !== id)), 2600)
+  }
+  const lastFloat = useRef(0)
+  const sendFloat = (emoji: string) => {
+    if (Date.now() - lastFloat.current < 250) return
+    lastFloat.current = Date.now()
+    addFloat(emoji, me.name, me.colour)
+    req('POST', '/float', { client: CLIENT, emoji }).catch(() => {})
+  }
+  const react = async (id: string, emoji: string) => {
+    try { const r = await req<{ object_id: string; reactions: Reaction[] }>('POST', '/react', { client: CLIENT, object_id: id, emoji }); setReactions(x => ({ ...x, [r.object_id]: r.reactions })) } catch (e) { toast(errMsg(e), 'err') }
+  }
+  const summon = async () => {
+    try { await req('POST', '/summon', { client: CLIENT, view: myView() }); toast('Everyone on the board now sees what you see') } catch (e) { toast(errMsg(e), 'err') }
+  }
+  const stopFollowing = () => { if (followRef.current) setFollowing(null) }
+  // tell the others what this screen shows when it moves (for following)
+  const viewT = useRef(0)
+  useEffect(() => {
+    window.clearTimeout(viewT.current)
+    viewT.current = window.setTimeout(() => sendCursor(), 180)
+  }, [cam]) // eslint-disable-line react-hooks/exhaustive-deps
+  const togglePrivate = async (on: boolean) => {
+    try { const r = await req<{ board: Board; revealed: number }>('PUT', '/private', { client: CLIENT, on }); setBoard(b => ({ ...b, ...r.board })); if (!on) { resync(); toast(r.revealed ? `${r.revealed} private ${r.revealed === 1 ? 'note' : 'notes'} revealed` : 'Private mode is off') } } catch (e) { toast(errMsg(e), 'err') }
+  }
   // cursors that went quiet fade out
   useEffect(() => {
     const t = window.setInterval(() => setCursors(m => { const now = Date.now(); let changed = false; const n = new Map(m); for (const [k, c] of n) if (now - c.at > 20000) { n.delete(k); changed = true } return changed ? n : m }), 5000)
@@ -354,7 +436,13 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
   const cursorLast = useRef(0)
   const sendCursor = (gone = false) => {
     cursorLast.current = Date.now()
-    call(conn, 'POST', '/cursor', { client: CLIENT, x: Math.round(lastPointer.current.x), y: Math.round(lastPointer.current.y), sel: [...selRef.current].slice(0, 50), gone }).catch(() => {})
+    call(conn, 'POST', '/cursor', { client: CLIENT, x: Math.round(lastPointer.current.x), y: Math.round(lastPointer.current.y), sel: [...selRef.current].slice(0, 50), gone, view: myView() }).catch(() => {})
+  }
+  /** What part of the board this screen shows, for anyone following. */
+  function myView(): View {
+    const c = camRef.current, el = vpRef.current
+    const w = el?.clientWidth || 1200, h = el?.clientHeight || 800
+    return { x: Math.round(-c.x / c.z), y: Math.round(-c.y / c.z), w: Math.round(w / c.z), h: Math.round(h / c.z) }
   }
   function sendCursorSoon() {
     if (cursorT.current) return
@@ -427,6 +515,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
       if ((e.target as HTMLElement).closest('.wb-panel, .wb-ctx, .wb-tools, .wb-zoom')) return
       e.preventDefault()
       cancelAnimationFrame(anim.current)
+      stopFollowing()
       if (e.ctrlKey || e.metaKey || settings?.wheel_zoom) {
         const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY
         zoomAt(e.clientX, e.clientY, Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0018)))
@@ -457,8 +546,15 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
   const pointers = useRef(new Map<number, Pt>())
   const lastTap = useRef<{ t: number; x: number; y: number; id: string | null }>({ t: 0, x: 0, y: 0, id: null })
 
-  const hitAt = (e: { target: EventTarget | null }): { id: string | null; part?: string; handle?: string; end?: string; plus?: string } => {
+  const hitAt = (e: { target: EventTarget | null }): { id: string | null; part?: string; handle?: string; end?: string; plus?: string; rot?: boolean; dot?: string; pin?: number; react?: string; link?: string } => {
     const t = e.target as HTMLElement
+    if (t.closest('[data-rot]')) return { id: null, rot: true }
+    const pin = t.closest('[data-pin]') as HTMLElement | null
+    if (pin) return { id: null, pin: Number(pin.dataset.pin) }
+    const rc = t.closest('[data-react]') as HTMLElement | null
+    if (rc) return { id: rc.dataset.obj || null, react: rc.dataset.react }
+    const dot = t.closest('[data-dot]') as HTMLElement | null
+    if (dot) return { id: dot.dataset.obj || null, dot: dot.dataset.dot }
     const h = t.closest('[data-handle]') as HTMLElement | null
     if (h) return { id: null, handle: h.dataset.handle }
     const end = t.closest('[data-end]') as HTMLElement | null
@@ -466,7 +562,16 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
     const plus = t.closest('[data-plus]') as HTMLElement | null
     if (plus) return { id: null, plus: plus.dataset.plus }
     const el = t.closest('[data-id]') as HTMLElement | null
-    return { id: el?.dataset.id || null, part: el?.dataset.part }
+    const a = t.closest('a[href]') as HTMLAnchorElement | null
+    return { id: el?.dataset.id || null, part: el?.dataset.part, link: a?.href }
+  }
+
+  /** A selection grows to whole groups (Alt picks just the one thing). */
+  const withGroups = (ids: Iterable<string>): Set<string> => {
+    const out = new Set(ids)
+    const groups = new Set([...out].map(id => objsRef.current.get(id)?.data.group).filter(Boolean) as string[])
+    if (groups.size) for (const o of objsRef.current.values()) if (o.data.group && groups.has(o.data.group)) out.add(o.id)
+    return out
   }
 
   /** What a line end would join to here (not lines, not the line itself). */
@@ -529,6 +634,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
     vpRef.current?.setPointerCapture(e.pointerId)
     cancelAnimationFrame(anim.current)
     setFlyout(null)
+    stopFollowing()
     const p = toWorld(e.clientX, e.clientY)
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
     if (pointers.current.size === 2) {
@@ -547,8 +653,25 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
       return
     }
     const all = objsRef.current
+    if (hit.pin) { setOpenThread(hit.pin); setNewThread(null); return }
+    if (hit.react && hit.id) { react(hit.id, hit.react); return }
+    if (t === 'comment') {
+      const o = hit.id ? all.get(hit.id) : undefined
+      const on = o && o.kind !== 'line' && o.kind !== 'pen' ? o.id : ''
+      setOpenThread(null)
+      setNewThread({ object_id: on, x: Math.round(on ? o!.x + o!.w : p.x), y: Math.round(on ? o!.y : p.y) })
+      setTool('select')
+      return
+    }
     if (t === 'select' || !canEdit) {
-      // resize handles and line ends first
+      // turning, joining dots, resize handles and line ends first
+      if (hit.rot && canEdit && selRef.current.size === 1) {
+        const [id] = [...selRef.current]
+        const o = all.get(id)
+        if (o) { const c = center(o); dragRef.current = { mode: 'rotate', id, c, a0: Math.atan2(p.y - c.y, p.x - c.x), r0: o.data.rot || 0, before: snapshot([id]) } }
+        return
+      }
+      if (hit.dot && hit.id && canEdit) { connectFrom(hit.id, hit.dot); return }
       if (hit.handle && canEdit) {
         const ids = [...selRef.current].filter(id => !all.get(id)?.data.locked)
         const box = union(ids.map(id => rectOf(all.get(id)!, all)))
@@ -556,7 +679,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
         return
       }
       if (hit.end && hit.id && canEdit) { dragRef.current = { mode: 'endpoint', id: hit.id, end: hit.end as 'a' | 'b', before: snapshot([hit.id]) }; return }
-      if (hit.plus && canEdit) { plusAdd(hit.plus); return }
+      if (hit.plus && canEdit) { dragRef.current = { mode: 'plus', dir: hit.plus, sx: e.clientX, sy: e.clientY }; return }
       if (hit.id && all.has(hit.id)) {
         const o = all.get(hit.id)!
         if (votes.open && !e.shiftKey && o.kind !== 'frame' && o.kind !== 'line' && o.kind !== 'pen') {
@@ -565,8 +688,10 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
         }
         const wasSel = selRef.current.has(hit.id)
         let s = selRef.current
-        if (e.shiftKey || e.metaKey) { s = new Set(s); if (wasSel) s.delete(hit.id); else s.add(hit.id); setSel(s) }
-        else if (!wasSel) { s = new Set([hit.id]); setSel(s) }
+        const grow = (ids: Iterable<string>) => e.altKey ? new Set(ids) : withGroups(ids)
+        if (e.shiftKey || e.metaKey) { s = new Set(s); if (wasSel) { for (const id of grow([hit.id])) s.delete(id) } else { for (const id of grow([hit.id])) s.add(id) } setSel(s) }
+        else if (!wasSel) { s = grow([hit.id]); setSel(s) }
+        linkRef.current = wasSel ? hit.link || null : null
         if (!canEdit) return
         const ids = movingSet([...s])
         dragRef.current = { mode: 'move', start: p, ids, orig: new Map(ids.map(id => [id, all.get(id)!])), before: snapshot(ids), moved: false, hit: hit.id, wasSel, shift: e.shiftKey, sx: e.clientX, sy: e.clientY }
@@ -608,7 +733,22 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
         return
       }
       case 'eraser': dragRef.current = { mode: 'erase', before: [] }; eraseAt(p); return
+      case 'sticker': {
+        const o = make('sticker', { x: snapV(p.x) - 60, y: snapV(p.y) - 60, w: 120, h: 120 }, { emoji: sticker })
+        commit([o]); setSel(new Set([o.id])); setTool('select'); return
+      }
     }
+  }
+  const linkRef = useRef<string | null>(null)
+  /** Starts an arrow from the middle of one of a thing's sides. */
+  function connectFrom(id: string, side: string) {
+    const o = objsRef.current.get(id)
+    if (!o) return
+    const pt = ({ t: { x: o.x + o.w / 2, y: o.y }, u: { x: o.x + o.w / 2, y: o.y }, b: { x: o.x + o.w / 2, y: o.y + o.h }, d: { x: o.x + o.w / 2, y: o.y + o.h }, l: { x: o.x, y: o.y + o.h / 2 }, r: { x: o.x + o.w, y: o.y + o.h / 2 } } as Record<string, Pt>)[side] || center(o)
+    const ln = make('line', { x: pt.x, y: pt.y, w: 0, h: 0 }, { x1: pt.x, y1: pt.y, x2: pt.x, y2: pt.y, from: o.id, end: 'arrow', curve: lineCurve })
+    apply([ln])
+    setHoverId(null); hoverRef.current = null
+    dragRef.current = { mode: 'line', id: ln.id, before: [[ln.id, null]] }
   }
 
   const eraseAt = (p: Pt) => {
@@ -634,6 +774,14 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
     const d = dragRef.current
     if (!d) {
       if (toolRef.current === 'line') setHoverTarget(targetAt(p))
+      if (toolRef.current === 'select' && canEdit && e.pointerType !== 'touch') {
+        const h = hitAt(e)
+        if (!h.dot) {
+          const o = h.id ? objsRef.current.get(h.id) : undefined
+          const id = o && CONNECTABLE.has(o.kind) && !o.data.locked ? o.id : null
+          if (id !== hoverRef.current) { hoverRef.current = id; setHoverId(id) }
+        }
+      }
       return
     }
     const all = objsRef.current
@@ -663,7 +811,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
           const hit = o.kind === 'frame' ? (or.x >= r.x && or.y >= r.y && or.x + or.w <= r.x + r.w && or.y + or.h <= r.y + r.h) : overlaps(r, or)
           if (hit) s.add(o.id)
         }
-        setSel(s)
+        setSel(e.altKey ? s : withGroups(s))
         return
       }
       case 'move': {
@@ -745,8 +893,26 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
         return
       }
       case 'erase': eraseAt(p); return
+      case 'plus': {
+        if (Math.hypot(e.clientX - d.sx, e.clientY - d.sy) > 6) {
+          const [id] = [...selRef.current]
+          if (id) connectFrom(id, d.dir)
+        }
+        return
+      }
+      case 'rotate': {
+        const o = all.get(d.id)
+        if (!o) return
+        let r = d.r0 + (Math.atan2(p.y - d.c.y, p.x - d.c.x) - d.a0) * 180 / Math.PI
+        r = ((r % 360) + 540) % 360 - 180
+        if (e.shiftKey) r = Math.round(r / 15) * 15
+        else if (Math.abs(r) < 3) r = 0
+        apply([withData(o, { rot: r ? Math.round(r * 10) / 10 : undefined })])
+        return
+      }
     }
   }
+  const hoverRef = useRef<string | null>(null)
 
   const finishDrag = (cancelled = false) => {
     const d = dragRef.current
@@ -761,11 +927,13 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
         const o = all.get(d.hit)
         if (votes.open && o) { castVote(d.hit, 1); return }
         if (!o) return
-        if (!d.shift && d.wasSel && selRef.current.size > 1) setSel(new Set([d.hit]))
+        if (d.wasSel && linkRef.current) { window.open(linkRef.current, '_blank', 'noopener'); linkRef.current = null; return }
+        if (!d.shift && d.wasSel && selRef.current.size > 1 && !o.data.group) setSel(new Set([d.hit]))
         else if (!d.shift && d.wasSel && canEdit && ['sticky', 'text', 'shape'].includes(o.kind) && !o.data.locked) setEditing(d.hit)
         return
       }
-      case 'resize': case 'endpoint': record(d.before); return
+      case 'resize': case 'endpoint': case 'rotate': record(d.before); return
+      case 'plus': if (!cancelled) plusAdd(d.dir); return
       case 'erase': if (d.before.length) record(d.before); return
       case 'create': {
         const o = all.get(d.id)
@@ -847,21 +1015,22 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
   }
 
   // ---- editing text
-  const onEditDone = useCallback((id: string, text: string, how: 'done' | 'tab' | 'cancel', h?: number) => H.current.editDone(id, text, how, h), [])
-  const editDone = (id: string, text: string, how: 'done' | 'tab' | 'cancel', h?: number) => {
+  const onEditDone = useCallback((id: string, r: EditResult, how: 'done' | 'tab' | 'cancel') => H.current.editDone(id, r, how), [])
+  const editDone = (id: string, r: EditResult, how: 'done' | 'tab' | 'cancel') => {
     if (editingRef.current === id) setEditing(null)
     const o = objsRef.current.get(id)
     if (!o) return
+    const { text, html, h } = r
     const key = o.kind === 'frame' ? 'title' : 'text'
     const before = (o.data[key as 'text'] || '') as string
     if (o.kind === 'text' && !text.trim()) { commit([], [o.id]); return }
-    if (how !== 'cancel' && before !== text) {
-      const n = withData(o, { [key]: text } as ObjData)
+    if (how !== 'cancel' && (before !== text || (o.data.html || '') !== (html || ''))) {
+      const n = withData(o, key === 'title' ? { title: text } : { text, html })
       if (o.kind === 'text' && h) n.h = Math.max(20, h)
       commit([n])
     }
     if (how === 'tab' && o.kind === 'sticky') {
-      const n: Obj = { ...o, id: newID(), x: o.x + o.w + 24, z: zs().hi + 1, data: { ...o.data, text: '' }, author: me.name }
+      const n: Obj = { ...o, id: newID(), x: o.x + o.w + 24, z: zs().hi + 1, data: { ...o.data, text: '', html: undefined }, author: me.name }
       commit([n]); setSel(new Set([n.id])); setEditing(n.id)
     }
   }
@@ -915,6 +1084,51 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
     commit(list.map((o, i) => ({ ...o, z: front ? hi + 1 + i : lo - list.length + i })))
   }
   const toggleLock = () => { const l = selected(); const lock = !l.every(o => o.data.locked); commit(l.map(o => withData(o, { locked: lock || undefined }))) }
+  function group() {
+    const l = selected().filter(o => o.kind !== 'frame')
+    if (l.length < 2) { toast('Pick two or more things to group them'); return }
+    const g = newID()
+    commit(l.map(o => withData(o, { group: g })))
+    toast('Grouped — they move together. Alt-click picks one of them.')
+  }
+  function ungroup() {
+    const l = selected().filter(o => o.data.group)
+    if (!l.length) return
+    commit(l.map(o => withData(o, { group: undefined })))
+  }
+  // tags
+  const allTags = useMemo(() => { const t = new Set<string>(); for (const o of objs.values()) for (const x of o.data.tags || []) t.add(x); return [...t].sort((a, b) => a.localeCompare(b)) }, [objs])
+  const toggleTag = (tag: string, add: boolean) => {
+    const l = selected().filter(o => o.kind === 'sticky' || o.kind === 'shape')
+    if (!l.length) return
+    commit(l.map(o => {
+      const cur = o.data.tags || []
+      const next = add ? (cur.includes(tag) ? cur : [...cur, tag]) : cur.filter(x => x !== tag)
+      return withData(o, { tags: next.length ? next : undefined })
+    }))
+  }
+  const groupByTag = () => {
+    const list = (sel.size ? selected() : [...objsRef.current.values()]).filter(o => o.kind === 'sticky' && !o.data.locked)
+    const by = new Map<string, string[]>()
+    for (const o of list) { const t = o.data.tags?.[0] || 'No tag'; by.set(t, [...(by.get(t) || []), o.id]) }
+    if (by.size < 1 || list.length < 2) { toast('Tag some notes first'); return }
+    placeGroups([...by.entries()].sort((a, b) => (a[0] === 'No tag' ? 1 : b[0] === 'No tag' ? -1 : a[0].localeCompare(b[0]))).map(([title, ids]) => ({ title, ids })))
+  }
+  // find on the board
+  const matches = useMemo(() => {
+    const q = find?.q.trim().toLowerCase()
+    if (!q) return [] as Obj[]
+    const tag = q.startsWith('#') ? q.slice(1) : ''
+    return framesInOrder([]).concat([...objs.values()].filter(o => tag ? (o.data.tags || []).some(t => t.toLowerCase().includes(tag)) : textOf(o).toLowerCase().includes(q) || (o.data.tags || []).some(t => t.toLowerCase() === q))
+      .sort((a, b) => (Math.abs(a.y - b.y) > 60 ? a.y - b.y : a.x - b.x)))
+  }, [find?.q, objs])
+  const findGo = (dir: number) => {
+    if (!find || !matches.length) return
+    const i = ((find.i + dir) % matches.length + matches.length) % matches.length
+    setFind({ ...find, i })
+    focusOn(matches[i].id)
+  }
+  useEffect(() => { if (find && matches.length) { setFind(f => f && ({ ...f, i: 0 })); focusOn(matches[0].id, false) } }, [find?.q]) // eslint-disable-line react-hooks/exhaustive-deps
   const arrangeGrid = (byColour = false) => {
     const l = selected().filter(o => o.kind !== 'line' && o.kind !== 'frame')
     if (l.length < 2) return
@@ -1022,6 +1236,8 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
       if (mod && k === 'y') { e.preventDefault(); redo(); return }
       if (mod && k === 'a') { e.preventDefault(); setSel(new Set(objsRef.current.keys())); return }
       if (mod && k === 'd') { e.preventDefault(); if (canEdit) duplicate(); return }
+      if (mod && k === 'f') { e.preventDefault(); setFind(f => f || { q: '', i: 0 }); return }
+      if (mod && k === 'g') { e.preventDefault(); if (canEdit) { if (e.shiftKey) ungroup(); else group() } return }
       if (mod && (k === '=' || k === '+')) { e.preventDefault(); zoomBy(1.25); return }
       if (mod && k === '-') { e.preventDefault(); zoomBy(0.8); return }
       if (mod && k === '0') { e.preventDefault(); const c = viewCenter(); const r = vpRef.current!; setCam({ z: 1, x: r.clientWidth / 2 - c.x, y: r.clientHeight / 2 - c.y }); return }
@@ -1042,8 +1258,9 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
       if (k === '[' && canEdit) { order(false); return }
       if (k === '=' || k === '+') { zoomBy(1.25); return }
       if (k === '-') { zoomBy(0.8); return }
-      const tools: Record<string, Tool> = { v: 'select', h: 'hand', n: 'sticky', t: 'text', s: 'shape', r: 'shape', l: 'line', p: 'pen', e: 'eraser', f: 'frame' }
-      if (tools[k] && (canEdit || k === 'v' || k === 'h')) { setTool(tools[k]); return }
+      const tools: Record<string, Tool> = { v: 'select', h: 'hand', n: 'sticky', t: 'text', s: 'shape', r: 'shape', l: 'line', p: 'pen', e: 'eraser', f: 'frame', c: 'comment', k: 'sticker' }
+      if (k === 'c' && guest && !canEdit) return
+      if (tools[k] && (canEdit || k === 'v' || k === 'h' || k === 'c')) { setTool(tools[k]); return }
       if (k === 'i' && canEdit) { pickImage(); return }
       if (k === '?') { setPanel(null); setShortcuts(true) }
     }
@@ -1117,6 +1334,10 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
     { label: 'Fit everything', icon: 'maximize', hint: '⇧1', onSelect: () => fitAll() },
     { label: 'Frames', icon: 'frame', onSelect: () => setPanel('frames') },
     { label: 'Present', icon: 'presentation', onSelect: startPresent },
+    { label: 'Find on this board', icon: 'search', hint: '⌘F', onSelect: () => setFind({ q: '', i: 0 }) },
+    ...(canEdit ? [{ label: 'Group the notes by tag', icon: 'tag', onSelect: groupByTag }] : []),
+    ...(canEdit && !guest ? [{ label: board.private?.on ? 'Private mode: reveal all' : 'Private mode', icon: 'eye-off', onSelect: () => togglePrivate(!board.private?.on) }] : []),
+    ...(!guest ? [{ label: 'Bring everyone to me', icon: 'magnet', onSelect: summon }, { label: 'History and deleted things', icon: 'history', onSelect: () => setPanel('history') }] : []),
     'sep',
     { label: sel.size ? 'Download a picture of what is picked' : 'Download a picture of the board', icon: 'image', onSelect: () => savePicture() },
     ...(!guest ? [
@@ -1217,15 +1438,30 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
         <span className="spacer" />
         {board.timer_ends && <button type="button" className="wb-timer-pill" onClick={() => setPanel('timer')}><Icon name="timer" size={14} /><Countdown ends={board.timer_ends} onEnd={chime} /></button>}
         <div className="wb-people-row" aria-label={`${people.length} on the board now`}>
-          {people.slice(0, mobile ? 2 : 5).map(p => (
-            <button key={p.voter} type="button" className="wb-person" title={`${p.name}${p.voter === me.voter ? ' (you)' : ''} — show where they are`} style={{ ['--pc' as string]: p.colour }}
-              onClick={() => { const c = cursors.get(p.client); if (c) { const r = vpRef.current!; animateTo({ z: camRef.current.z, x: r.clientWidth / 2 - c.x * camRef.current.z, y: r.clientHeight / 2 - c.y * camRef.current.z }) } }}>
-              <Avatar name={p.name} size={28} color={p.colour} />
-            </button>
-          ))}
+          {people.slice(0, mobile ? 2 : 5).map(p => {
+            const mine = p.voter === me.voter
+            const theirs = [...cursors.entries()].find(([, c]) => c.voter === p.voter)
+            const items = (): MenuItem[] => mine ? [
+              { heading: `${p.name} (you)` },
+              ...(!guest ? [{ label: 'Bring everyone to me', icon: 'magnet', onSelect: summon }] : []),
+            ] : [
+              { heading: p.name },
+              { label: following === theirs?.[0] ? 'Stop following' : 'Follow their view', icon: 'eye-follow', disabled: !theirs, hint: theirs ? undefined : 'not moving yet', onSelect: () => { if (!theirs) return; if (following === theirs[0]) setFollowing(null); else { setFollowing(theirs[0]); if (theirs[1].view) animateTo(camFor(theirs[1].view, 0, 8)) } } },
+              { label: 'Go to their pointer', icon: 'cursor', disabled: !theirs, onSelect: () => { const c = theirs?.[1]; if (c) { const r = vpRef.current!; animateTo({ z: camRef.current.z, x: r.clientWidth / 2 - c.x * camRef.current.z, y: r.clientHeight / 2 - c.y * camRef.current.z }) } } },
+            ]
+            return (
+              <MenuButton key={p.voter} label={p.name} className={`wb-person ${theirs && following === theirs[0] ? 'following' : ''}`} align="right" width={230} items={items}>
+                <span style={{ ['--pc' as string]: p.colour }} className="wb-person-ring" title={`${p.name}${mine ? ' (you)' : ''}`}><Avatar name={p.name} size={28} color={p.colour} /></span>
+              </MenuButton>
+            )
+          })}
           {people.length > (mobile ? 2 : 5) && <span className="wb-more-people">+{people.length - (mobile ? 2 : 5)}</span>}
         </div>
         {!mobile && <button type="button" className={`btn ghost icon-only ${panel === 'timer' ? 'on' : ''}`} onClick={() => setPanel(panel === 'timer' ? null : 'timer')} title="Timer" aria-label="Timer"><Icon name="timer" size={18} /></button>}
+        <MenuButton label="Send a reaction" className="btn ghost icon-only" align="right" width={316} items={() => [{ heading: 'Everyone sees it float up' }, ...REACTIONS.map(e => ({ label: <span className="wb-react-item">{e}</span>, onSelect: () => sendFloat(e) }))]}><Icon name="smile" size={18} /></MenuButton>
+        <button type="button" className={`btn ghost icon-only wb-has-count ${panel === 'comments' ? 'on' : ''}`} onClick={() => setPanel(panel === 'comments' ? null : 'comments')} title="Comments (C to add one)" aria-label="Comments">
+          <Icon name="comment" size={18} />{threads.filter(t => !t.root.resolved).length > 0 && <i>{threads.filter(t => !t.root.resolved).length}</i>}
+        </button>
         <button type="button" className={`btn ghost icon-only ${panel === 'vote' || votes.open ? 'on' : ''}`} onClick={() => setPanel(panel === 'vote' ? null : 'vote')} title="Voting" aria-label="Voting"><Icon name="vote" size={18} /></button>
         {!guest && !mobile && <button type="button" className={`btn ghost icon-only ${panel === 'ai' ? 'on' : ''}`} onClick={() => setPanel(panel === 'ai' ? null : 'ai')} title="Pocket AI: group, sum up, more ideas" aria-label="Pocket AI"><Icon name="sparkles" size={18} /></button>}
         {!guest && <button type="button" className="btn primary sm wb-share" onClick={() => setPanel(panel === 'share' ? null : 'share')}><Icon name="users" size={15} />{mobile ? '' : 'Share'}</button>}
@@ -1236,6 +1472,21 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
         ]}><Icon name="more" size={18} /></MenuButton>
       </header>
 
+      {board.private?.on && present === null && (
+        <div className="wb-private-bar">
+          <Icon name="eye-off" size={16} />
+          <span><b>Private mode</b> — what you add stays hidden from the others until it is revealed.{privCounts.length > 0 && <> {privCounts.map(c => `${c.name || 'Someone'} ${c.n}`).join(' · ')}</>}</span>
+          {canEdit && !guest && <button type="button" className="btn sm primary" onClick={() => togglePrivate(false)}>Reveal all</button>}
+        </div>
+      )}
+      {following && present === null && (() => { const c = cursors.get(following); return (
+        <div className="wb-follow-bar" style={{ ['--pc' as string]: c?.colour || 'var(--wb-sel)' }}>
+          <span>Following <b>{c?.name || 'someone'}</b></span>
+          <button type="button" className="btn sm" onClick={() => setFollowing(null)}>Stop</button>
+        </div>
+      ) })()}
+      {following && present === null && <div className="wb-follow-frame" style={{ ['--pc' as string]: cursors.get(following)?.colour || 'var(--wb-sel)' }} />}
+      {find && present === null && <FindBar q={find.q} setQ={q => setFind({ q, i: 0 })} n={matches.length} i={find.i} onNext={() => findGo(1)} onPrev={() => findGo(-1)} onClose={() => setFind(null)} />}
       {votes.open && present === null && (
         <div className="wb-vote-bar">
           <Icon name="vote" size={16} />
@@ -1265,12 +1516,35 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
             if (!n && !m) return null
             return <div key={'v' + o.id} className="wb-vote-at" style={{ left: o.x + o.w, top: o.y, ['--vs' as string]: `${clamp(1 / cam.z, 0.6, 3)}` }}><VoteBadge votes={n} mine={m} /></div>
           })}
+          {/* reactions under the things */}
+          {sorted.map(o => {
+            const r = reactions[o.id]
+            if (!r?.length) return null
+            return (
+              <div key={'r' + o.id} className="wb-react-at" style={{ left: o.x, top: o.y + o.h, ['--vs' as string]: `${clamp(1 / cam.z, 0.6, 3)}` }}>
+                {r.map(x => <button key={x.emoji} type="button" className={`wb-react ${x.voters.includes(me.voter) ? 'mine' : ''}`} data-react={x.emoji} data-obj={o.id} title={x.names.join(', ')}>{x.emoji}<b>{x.names.length}</b></button>)}
+              </div>
+            )
+          })}
+          {/* what find found */}
+          {find && matches.map((o, i) => <div key={'f' + o.id} className={`wb-match ${i === find.i ? 'cur' : ''}`} style={{ left: o.x - 6 / cam.z, top: o.y - 6 / cam.z, width: o.w + 12 / cam.z, height: o.h + 12 / cam.z, borderWidth: (i === find.i ? 3 : 2) / cam.z }} />)}
+          {/* the dots to join things with an arrow */}
+          {canEdit && tool === 'select' && present === null && !editing && !dragRef.current && (() => {
+            const plusOn = selList.length === 1 && ['sticky', 'shape'].includes(selList[0].kind) && cam.z > 0.25
+            const id = hoverId && objs.has(hoverId) && !(plusOn && selList[0].id === hoverId) ? hoverId : !plusOn && selList.length === 1 && CONNECTABLE.has(selList[0].kind) ? selList[0].id : null
+            const o = id ? objs.get(id) : undefined
+            if (!o || o.data.locked || cam.z < 0.2) return null
+            const off = 14 / cam.z
+            const pts: [string, number, number][] = [['t', o.x + o.w / 2, o.y - off], ['r', o.x + o.w + off, o.y + o.h / 2], ['b', o.x + o.w / 2, o.y + o.h + off], ['l', o.x - off, o.y + o.h / 2]]
+            return pts.map(([k, x, y]) => <span key={k} className="wb-dot" data-dot={k} data-obj={o.id} title="Drag to draw an arrow from here" style={{ left: x, top: y, ['--h' as string]: `${12 / cam.z}px` }} />)
+          })()}
           {/* the selection */}
           {selBox && present === null && !oneLine && (
-            <div className={`wb-sel ${selList.some(o => o.data.locked) ? 'locked' : ''}`} style={{ left: selBox.x, top: selBox.y, width: selBox.w, height: selBox.h, ['--h' as string]: `${h}px`, ['--bw' as string]: `${1.5 / cam.z}px` }}>
+            <div className={`wb-sel ${selList.some(o => o.data.locked) ? 'locked' : ''} ${selList.length > 1 && selList.every(o => o.data.group && o.data.group === selList[0].data.group) ? 'grouped' : ''}`} style={{ left: selBox.x, top: selBox.y, width: selBox.w, height: selBox.h, ['--h' as string]: `${h}px`, ['--bw' as string]: `${1.5 / cam.z}px`, ...(selList.length === 1 && selList[0].data.rot ? { transform: `rotate(${selList[0].data.rot}deg)` } : {}) }}>
+              {canEdit && !editing && selList.length === 1 && !['line', 'frame', 'pen'].includes(selList[0].kind) && !selList[0].data.locked && <span className="wb-rot" data-rot="1" title="Turn (Shift: 15° steps)" style={{ ['--s' as string]: `${18 / cam.z}px` }}><Icon name="rotate" size={12} /></span>}
               {canEdit && !editing && !selList.every(o => o.data.locked) && (selList.length === 1 && selList[0].kind === 'text' ? ['w', 'e', 'nw', 'ne', 'sw', 'se'] : ['nw', 'ne', 'sw', 'se', ...(selList.length === 1 && ['shape', 'frame'].includes(selList[0].kind) ? ['n', 's', 'w', 'e'] : [])]).map(hd => <span key={hd} className={`wb-handle h-${hd}`} data-handle={hd} />)}
               {canEdit && !editing && selList.length === 1 && ['sticky', 'shape'].includes(selList[0].kind) && !selList[0].data.locked && cam.z > 0.25 && ['r', 'd', 'l', 'u'].map(dir => (
-                <button key={dir} type="button" className={`wb-plus p-${dir}`} data-plus={dir} title="Another one here" style={{ ['--s' as string]: `${22 / cam.z}px` }}>+</button>
+                <button key={dir} type="button" className={`wb-plus p-${dir}`} data-plus={dir} title="Click: another one here · drag: an arrow from here" style={{ ['--s' as string]: `${22 / cam.z}px` }}>+</button>
               ))}
             </div>
           )}
@@ -1294,6 +1568,17 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
             <span>{c.name}</span>
           </div>
         ))}
+        {/* comment pins */}
+        {present === null && threads.filter(t => showResolved || !t.root.resolved || openThread === t.root.id).map(t => {
+          const at = pinAt(t, objs)
+          return (
+            <button key={t.root.id} type="button" className={`wb-pin ${t.root.resolved ? 'resolved' : ''} ${openThread === t.root.id ? 'open' : ''}`} data-pin={t.root.id}
+              style={{ transform: `translate(${cam.x + at.x * cam.z}px, ${cam.y + at.y * cam.z}px)` }} title={`${t.root.author}: ${t.root.body.slice(0, 80)}`}>
+              <Avatar name={t.root.author} size={24} />{t.replies.length > 0 && <i>{t.replies.length + 1}</i>}
+            </button>
+          )
+        })}
+        {newThread && <span className="wb-pin new" style={{ transform: `translate(${cam.x + newThread.x * cam.z}px, ${cam.y + newThread.y * cam.z}px)` }}><Icon name="plus" size={14} /></span>}
         {sorted.length === 0 && canEdit && (
           <div className="wb-empty">
             <p><b>An empty board.</b> Double-click (or double-tap) anywhere for a sticky note, or pick a tool on the left.</p>
@@ -1307,6 +1592,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
         <nav className="wb-tools" aria-label="Tools" onPointerDown={e => e.stopPropagation()}>
           <ToolBtn icon="cursor" label="Select" k="V" on={tool === 'select'} onClick={() => setTool('select')} />
           <ToolBtn icon="hand" label="Move the board" k="H" on={tool === 'hand'} onClick={() => setTool('hand')} />
+          {(canEdit || !guest) && <ToolBtn icon="comment" label="Comment" k="C" on={tool === 'comment'} onClick={() => setTool(tool === 'comment' ? 'select' : 'comment')} />}
           {canEdit && <>
             <span className="wb-tools-sep" />
             <ToolBtn icon="sticky" label="Sticky note" k="N" on={tool === 'sticky'} onClick={() => { setTool('sticky'); setFlyout(flyout === 'sticky' ? null : 'sticky') }} dot={paper(stickyColor).bg} />
@@ -1317,6 +1603,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
             <ToolBtn icon="eraser" label="Eraser (pen lines)" k="E" on={tool === 'eraser'} onClick={() => setTool('eraser')} />
             <ToolBtn icon="frame" label="Frame" k="F" on={tool === 'frame'} onClick={() => setTool('frame')} />
             <ToolBtn icon="image" label="Picture" k="I" on={false} onClick={pickImage} />
+            <ToolBtn icon="sticker" label="Sticker" k="K" on={tool === 'sticker'} onClick={() => { setTool('sticker'); setFlyout(flyout === 'sticker' ? null : 'sticker') }} more />
             <span className="wb-tools-sep" />
             <ToolBtn icon="undo" label="Undo" k="⌘Z" on={false} disabled={!undoStack.current.length} onClick={undo} />
             <ToolBtn icon="redo" label="Redo" k="⇧⌘Z" on={false} disabled={!redoStack.current.length} onClick={redo} />
@@ -1336,6 +1623,12 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
             <div className="wb-fly wb-fly-grid">
               {([['straight', 'arrow-line', 'Straight'], ['elbow', 'elbow', 'Elbow'], ['curve', 'curve', 'Curved']] as const).map(([v, ic, n]) => <button key={v} type="button" className={`btn ghost icon-only ${v === lineCurve ? 'on' : ''}`} title={n} aria-label={n} onClick={() => { setLineCurve(v); setFlyout(null) }}><Icon name={ic} size={18} /></button>)}
               <p className="muted small">Drag from one thing to another: the line stays joined when they move.</p>
+            </div>
+          )}
+          {flyout === 'sticker' && (
+            <div className="wb-fly wb-fly-pen">
+              <EmojiGrid list={STICKERS} cols={5} onPick={e => { setSticker(e); setFlyout(null) }} />
+              <p className="muted small">Then click the board: {sticker}</p>
             </div>
           )}
           {flyout === 'pen' && (
@@ -1362,7 +1655,10 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
           onGrid={() => arrangeGrid(false)} onByColour={() => arrangeGrid(true)} onAlign={align} onFocus={() => { const r = union(selList.map(o => rectOf(o, objs))); if (r) animateTo(camFor(r, 120, 2)) }}
           onTasks={tasksOK ? () => toApp('/tasks', { ids: selList.map(o => o.id) }) : undefined} tasksHint={needs(tasksOK, 'Tasks')}
           onAI={!guest ? () => setPanel('ai') : undefined} onVote={votes.open ? () => castVote(selList[0].id, 1) : undefined} onUnvote={votes.open && votes.mine[selList[0].id] ? () => castVote(selList[0].id, -1) : undefined}
-          onEdit={() => setEditing(selList[0].id)} />
+          onEdit={() => setEditing(selList[0].id)}
+          onGroup={group} onUngroup={ungroup} allTags={allTags} onTag={toggleTag} onByTag={groupByTag}
+          onReact={e => react(selList[0].id, e)} myReactions={(reactions[selList[0].id] || []).filter(r => r.voters.includes(me.voter)).map(r => r.emoji)}
+          onComment={() => { const o = selList[0]; setOpenThread(null); setNewThread({ object_id: o.kind === 'line' ? '' : o.id, x: Math.round(o.x + o.w), y: Math.round(o.y) }) }} />
       )}
 
       {/* ---- zoom */}
@@ -1386,6 +1682,28 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
         </div>
       )}
 
+      {/* ---- comments beside their pins */}
+      {openThread !== null && present === null && (() => {
+        const t = threads.find(x => x.root.id === openThread)
+        if (!t) return null
+        const at = pinAt(t, objs)
+        const pos = { left: clamp(cam.x + at.x * cam.z + 20, 8, vpSize.w - 330), top: clamp(cam.y + at.y * cam.z + 40, 60, Math.max(60, vpSize.h - 380)) }
+        return <ThreadCard thread={t} pos={pos} people={mentionPeople} req={req} myVoter={me.voter} canResolve={canEdit || t.root.voter === me.voter} isOwner={board.role === 'owner'} guest={guest}
+          onClose={() => setOpenThread(null)} onChanged={loadComments} />
+      })()}
+      {newThread && present === null && (
+        <NewThread at={newThread} people={mentionPeople} req={req} pos={{ left: clamp(cam.x + newThread.x * cam.z + 20, 8, vpSize.w - 330), top: clamp(cam.y + newThread.y * cam.z + 40, 60, Math.max(60, vpSize.h - 260)) }}
+          onClose={() => setNewThread(null)} onCreated={id => { setNewThread(null); loadComments(); setOpenThread(id) }} />
+      )}
+      {/* ---- formatting while writing */}
+      {editing && objs.get(editing) && ['sticky', 'shape', 'text'].includes(objs.get(editing)!.kind) && present === null && (() => {
+        const o = objs.get(editing)!
+        const top = cam.y + o.y * cam.z - 56
+        const pos = { left: clamp(cam.x + (o.x + o.w / 2) * cam.z, 190, vpSize.w - 190), top: top < 60 ? Math.min(vpSize.h - 56, cam.y + (o.y + o.h) * cam.z + 14) : top }
+        return <FormatBar pos={pos} size={o.data.size || 0} onSize={v => { const cur = objsRef.current.get(o.id); if (cur) commit([withData(cur, { size: v || undefined })]) }} />
+      })()}
+      <FloatLayer floats={floats} />
+
       {/* ---- panels */}
       {panel === 'share' && !guest && <SharePanel board={board} members={members} setMembers={setMembers} shareURL={shareURL} setShareURL={setShareURL} onBoard={b => setBoard(x => ({ ...x, ...b }))} onClose={() => setPanel(null)}
         onLeave={async () => { try { await api.del(`${conn.base}/members/${(await api.get<{ id: number }>(`${V1}/auth/me`)).id}`); navigate('/') } catch (e) { toast(errMsg(e), 'err') } }} />}
@@ -1393,6 +1711,9 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
       {panel === 'timer' && <TimerPanel board={board} canEdit={canEdit} onSet={setTimer} onClose={() => setPanel(null)} />}
       {panel === 'frames' && <FramesPanel objs={objs} onFocus={id => focusOn(id)} onPresent={startPresent} onClose={() => setPanel(null)} />}
       {panel === 'ai' && !guest && <AIPanel base={conn.base} picked={[...sel]} canEdit={canEdit} onGroups={placeGroups} onIdeas={placeIdeas} onNote={placeNote} onClose={() => setPanel(null)} />}
+      {panel === 'comments' && <CommentsPanel threads={threads} people={mentionPeople} objs={objs} showResolved={showResolved} setShowResolved={setShowResolved} onClose={() => setPanel(null)}
+        onOpen={id => { const t = threads.find(x => x.root.id === id); if (t) { const at = pinAt(t, objs); animateTo(camFor({ x: at.x - 300, y: at.y - 200, w: 600, h: 400 }, 40, 1.2)); setOpenThread(id); if (mobile) setPanel(null) } }} />}
+      {panel === 'history' && !guest && <HistoryPanel req={req} canEdit={canEdit} background={board.background} reloadKey={historyKey} onClose={() => setPanel(null)} />}
       {panel === 'chat' && !guest && <ChatPicker onClose={() => setPanel(null)} onSend={to => { setPanel(null); toApp('/chat', { to }) }} />}
 
       {settingsOpen && <BoardSettings board={board} onClose={() => setSettingsOpen(false)} onSave={async b => { try { await call(conn, 'PUT', '', b); setBoard(x => ({ ...x, ...b })); setSettingsOpen(false) } catch (e) { toast(errMsg(e), 'err') } }} />}
@@ -1415,13 +1736,26 @@ function ToolBtn({ icon, label, k, on, onClick, disabled, more, dot }: { icon: s
 
 // ---- the bar over what is picked
 
-function ContextBar({ pos, list, canEdit, guest, onColour, onStyle, onFront, onBack, onDuplicate, onDelete, onLock, onGrid, onByColour, onAlign, onFocus, onTasks, tasksHint, onAI, onVote, onUnvote, onEdit }: {
+function ContextBar({ pos, list, canEdit, guest, onColour, onStyle, onFront, onBack, onDuplicate, onDelete, onLock, onGrid, onByColour, onAlign, onFocus, onTasks, tasksHint, onAI, onVote, onUnvote, onEdit,
+  onGroup, onUngroup, allTags, onTag, onByTag, onReact, myReactions, onComment }: {
   pos: { left: number; top: number }; list: Obj[]; canEdit: boolean; guest: boolean
   onColour: (c: string) => void; onStyle: (d: Partial<ObjData>, only?: (o: Obj) => boolean) => void; onFront: () => void; onBack: () => void; onDuplicate: () => void; onDelete: () => void; onLock: () => void
   onGrid: () => void; onByColour: () => void; onAlign: (h: 'left' | 'top' | 'hcenter' | 'vcenter') => void; onFocus: () => void
   onTasks?: () => void; tasksHint?: string; onAI?: () => void; onVote?: () => void; onUnvote?: () => void; onEdit: () => void
+  onGroup: () => void; onUngroup: () => void; allTags: string[]; onTag: (t: string, add: boolean) => void; onByTag: () => void
+  onReact: (e: string) => void; myReactions: string[]; onComment: () => void
 }) {
-  const [open, setOpen] = useState<'colour' | 'shape' | 'ink' | null>(null)
+  const [open, setOpen] = useState<'colour' | 'shape' | 'ink' | 'tags' | 'react' | 'size' | null>(null)
+  const grouped = list.length > 1 && list.every(o => o.data.group && o.data.group === list[0].data.group)
+  const anyGroup = list.some(o => o.data.group)
+  const taggable = list.filter(o => o.kind === 'sticky' || o.kind === 'shape')
+  const tagState = (t: string): 'all' | 'some' | 'none' => { const n = taggable.filter(o => o.data.tags?.includes(t)).length; return n === 0 ? 'none' : n === taggable.length ? 'all' : 'some' }
+  const reactBtn = list.length === 1 && list[0].kind !== 'line' && list[0].kind !== 'frame' && (
+    <div className="wb-ctx-drop">
+      <button type="button" className="btn ghost icon-only sm" onClick={() => setOpen(open === 'react' ? null : 'react')} title="React" aria-label="React"><Icon name="smile" size={16} /></button>
+      {open === 'react' && <div className="wb-ctx-pop"><EmojiGrid list={REACTIONS} cols={4} onPick={e => { onReact(e); setOpen(null) }} />{myReactions.length > 0 && <p className="muted small">Click yours again to take it back.</p>}</div>}
+    </div>
+  )
   const kinds = new Set(list.map(o => o.kind))
   const one = list.length === 1 ? list[0] : null
   const locked = list.every(o => o.data.locked)
@@ -1434,6 +1768,8 @@ function ContextBar({ pos, list, canEdit, guest, onColour, onStyle, onFront, onB
         {onVote && <button type="button" className="btn ghost sm" onClick={onVote}><Icon name="vote" size={15} />Vote</button>}
         {onUnvote && <button type="button" className="btn ghost sm" onClick={onUnvote}>Take my vote back</button>}
         <button type="button" className="btn ghost icon-only sm" onClick={onFocus} title="Zoom to it" aria-label="Zoom to it"><Icon name="zoom-in" size={16} /></button>
+        {reactBtn}
+        {!guest && list.length === 1 && <button type="button" className="btn ghost icon-only sm" onClick={onComment} title="Comment" aria-label="Comment"><Icon name="comment" size={16} /></button>}
         {one?.author && <span className="muted small wb-ctx-author">by {one.author}</span>}
       </div>
     )
@@ -1447,6 +1783,9 @@ function ContextBar({ pos, list, canEdit, guest, onColour, onStyle, onFront, onB
       { label: 'Line up centres', icon: 'align-center', onSelect: () => onAlign('hcenter') },
       { label: 'Line up top edges', icon: 'arrow-up', onSelect: () => onAlign('top') },
     ] : []),
+    ...(list.length > 1 && !grouped ? [{ label: 'Group', icon: 'group', hint: '⌘G', onSelect: onGroup }] : []),
+    ...(anyGroup ? [{ label: 'Ungroup', icon: 'ungroup', hint: '⇧⌘G', onSelect: onUngroup }] : []),
+    ...(taggable.length > 1 ? [{ label: 'Sort into frames by tag', icon: 'tag', onSelect: onByTag }] : []),
     'sep',
     { label: 'Bring to front', icon: 'bring-front', hint: ']', onSelect: onFront },
     { label: 'Send to back', icon: 'send-back', hint: '[', onSelect: onBack },
@@ -1494,6 +1833,21 @@ function ContextBar({ pos, list, canEdit, guest, onColour, onStyle, onFront, onB
         <button type="button" className="btn ghost icon-only sm" onClick={onEdit} title="Label" aria-label="Label"><Icon name="text" size={16} /></button>
       </>}
       {one && ['sticky', 'shape'].includes(one.kind) && !locked && <button type="button" className="btn ghost icon-only sm" onClick={onEdit} title="Write (Enter)" aria-label="Write"><Icon name="edit" size={16} /></button>}
+      {list.every(o => o.kind === 'sticky' || o.kind === 'shape') && !locked && (
+        <div className="wb-ctx-drop">
+          <button type="button" className="btn ghost sm wb-size-btn" onClick={() => setOpen(open === 'size' ? null : 'size')} title="Text size">{one?.data.size || 'Auto'}<Icon name="chevron-down" size={12} /></button>
+          {open === 'size' && <div className="wb-ctx-pop wb-sizes">{TEXT_SIZES.map(s => <button key={s.v} type="button" className={`btn ghost sm ${(one?.data.size || 0) === s.v ? 'on' : ''}`} onClick={() => { onStyle({ size: s.v || undefined }); setOpen(null) }}>{s.label}</button>)}</div>}
+        </div>
+      )}
+      {taggable.length > 0 && !locked && (
+        <div className="wb-ctx-drop">
+          <button type="button" className={`btn ghost icon-only sm ${taggable.some(o => o.data.tags?.length) ? 'on' : ''}`} onClick={() => setOpen(open === 'tags' ? null : 'tags')} title="Tags" aria-label="Tags"><Icon name="tag" size={16} /></button>
+          {open === 'tags' && <TagPicker all={allTags} on={tagState} onToggle={onTag} onClose={() => setOpen(null)} />}
+        </div>
+      )}
+      {list.length > 1 && <button type="button" className={`btn ghost icon-only sm ${grouped ? 'on' : ''}`} onClick={grouped ? onUngroup : onGroup} title={grouped ? 'Ungroup (⇧⌘G)' : 'Group (⌘G)'} aria-label={grouped ? 'Ungroup' : 'Group'}><Icon name={grouped ? 'ungroup' : 'group'} size={16} /></button>}
+      {reactBtn}
+      {!guest && list.length === 1 && <button type="button" className="btn ghost icon-only sm" onClick={onComment} title="Comment" aria-label="Comment"><Icon name="comment" size={16} /></button>}
       {!guest && textish.length > 0 && <button type="button" className="btn ghost icon-only sm" disabled={!onTasks} onClick={onTasks} title={onTasks ? `Make ${textish.length > 1 ? 'tasks' : 'a task'} in Pocket Tasks` : tasksHint} aria-label="Make tasks"><Icon name="check-square" size={16} /></button>}
       <button type="button" className="btn ghost icon-only sm" onClick={onDuplicate} title="Copy (⌘D)" aria-label="Copy"><Icon name="copy" size={16} /></button>
       {!locked && <button type="button" className="btn ghost icon-only sm" onClick={onDelete} title="Delete (Del)" aria-label="Delete"><Icon name="trash" size={16} /></button>}
@@ -1521,7 +1875,7 @@ function BoardSettings({ board, onClose, onSave }: { board: Board; onClose: () =
 
 function BoardShortcuts({ onClose }: { onClose: () => void }) {
   const rows: [string, string][] = [
-    ['V', 'Select'], ['H or hold Space', 'Move the board'], ['N', 'Sticky note'], ['T', 'Text'], ['S', 'Shape'], ['L', 'Line or arrow'], ['P', 'Pen'], ['E', 'Eraser'], ['F', 'Frame'], ['I', 'Picture'],
+    ['V', 'Select'], ['H or hold Space', 'Move the board'], ['C', 'Comment'], ['K', 'Sticker'], ['⌘F', 'Find on the board (#tag for tags)'], ['⌘G / ⇧⌘G', 'Group / ungroup'], ['Alt-click', 'One thing inside a group'], ['⌘B ⌘I ⌘U', 'Bold, italic, underline while writing'], ['N', 'Sticky note'], ['T', 'Text'], ['S', 'Shape'], ['L', 'Line or arrow'], ['P', 'Pen'], ['E', 'Eraser'], ['F', 'Frame'], ['I', 'Picture'],
     ['Double-click', 'New sticky note / write on it'], ['Enter', 'Write on what is picked'], ['Tab (while writing)', 'Next sticky note to the right'], ['Esc', 'Done / pick nothing'],
     ['⌘Z / ⇧⌘Z', 'Undo / redo'], ['⌘C ⌘X ⌘V', 'Copy, cut, paste (a pasted list becomes notes)'], ['⌘D', 'Make a copy'], ['⌘A', 'Pick everything'], ['Del', 'Delete'],
     ['Arrows (⇧ ×10)', 'Nudge'], [']  [', 'Bring to front / send to back'], ['Shift-drag', 'Add to the pick; keep proportions when resizing'], ['Alt while dragging', 'No lining up'],

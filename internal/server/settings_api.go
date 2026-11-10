@@ -36,7 +36,7 @@ func (s *Server) publicSettings(ctx context.Context, u *store.User, st store.Set
 		"core_configured": s.core.Configured(), "core_registered": s.coreStatus()["registered"],
 		"title": st.Title, "date_format": st.DateFormat, "time_format": st.TimeFormat, "week_start": st.WeekStart,
 		"background": st.Background, "sticky_color": st.StickyColor, "snap": st.Snap, "cursors": st.Cursors, "wheel_zoom": st.WheelZoom,
-		"notes_folder": st.NotesFolder, "files_folder": st.FilesFolder, "chat_to": st.ChatTo, "ai_help": st.AIHelp, "notify_shared": st.NotifyShared,
+		"notes_folder": st.NotesFolder, "files_folder": st.FilesFolder, "chat_to": st.ChatTo, "ai_help": st.AIHelp, "notify_shared": st.NotifyShared, "notify_mentions": st.NotifyMentions, "notify_comments": st.NotifyComments,
 		"notify_url": st.NotifyURL, "notify_format": st.NotifyFormat, "notify_configured": st.NotifyURL != "",
 		"ai_provider": st.AIProvider, "ai_pocket_model": st.AIPocketModel, "openai_api_key": mask(st.OpenAIKey), "openai_model": st.OpenAIModel, "openai_base_url": st.OpenAIBaseURL,
 		"setup_complete": st.SetupComplete, "base_url": s.cfg.BaseURL, "demo": s.cfg.DemoData,
@@ -139,6 +139,8 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 	folder("files_folder", &cur.FilesFolder, in.FilesFolder)
 	boolIn("ai_help", &cur.AIHelp, in.AIHelp)
 	boolIn("notify_shared", &cur.NotifyShared, in.NotifyShared)
+	boolIn("notify_mentions", &cur.NotifyMentions, in.NotifyMentions)
+	boolIn("notify_comments", &cur.NotifyComments, in.NotifyComments)
 	text("notify_url", &cur.NotifyURL, in.NotifyURL)
 	if keys["notify_format"] && in.NotifyFormat != "" {
 		cur.NotifyFormat = in.NotifyFormat

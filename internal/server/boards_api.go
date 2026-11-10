@@ -32,7 +32,7 @@ func finite(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) && math
 func boardOut(b *store.Board, a *actor) map[string]any {
 	out := map[string]any{"id": b.ID, "title": b.Title, "about": b.About, "template": b.Template, "background": b.Background,
 		"share_mode": b.ShareMode, "timer_ends": b.TimerEnds, "timer_secs": b.TimerSecs, "vote": b.VoteOf(), "version": b.Version,
-		"owner_name": b.OwnerName, "created_at": b.CreatedAt, "updated_at": b.UpdatedAt}
+		"owner_name": b.OwnerName, "owner_id": b.UserID, "private": b.PrivateOf(), "created_at": b.CreatedAt, "updated_at": b.UpdatedAt}
 	if a != nil {
 		out["role"] = a.role
 		if a.owner() {
@@ -133,7 +133,7 @@ func (s *Server) handleCreateBoard(w http.ResponseWriter, r *http.Request) {
 			objs[i].Source = b.Source
 			ops = append(ops, store.Op{Op: "put", Obj: &objs[i]})
 		}
-		if _, err := s.store.ApplyOps(ctx, b.ID, ops, &u.ID, s.actorName(u)); err != nil {
+		if _, err := s.store.ApplyOps(ctx, b.ID, ops, &u.ID, s.actorName(u), ""); err != nil {
 			s.fail(w, err, "create board")
 			return
 		}
@@ -147,11 +147,13 @@ func (s *Server) boardURL(b *store.Board) string { return s.link("/b/" + itoa(b.
 
 // boardDoc is everything a page needs to show a board.
 func (s *Server) boardDoc(ctx context.Context, a *actor) (map[string]any, error) {
-	objs, err := s.store.Objects(ctx, a.b.ID)
+	objs, err := s.store.ObjectsFor(ctx, a.b.ID, a.voter())
 	if err != nil {
 		return nil, err
 	}
-	out := map[string]any{"board": boardOut(a.b, a), "objects": objs, "people": s.hub.people(a.b.ID),
+	reactions, _ := s.store.Reactions(ctx, a.b.ID, "")
+	counts, _ := s.store.PrivateCounts(ctx, a.b.ID)
+	out := map[string]any{"board": boardOut(a.b, a), "objects": objs, "people": s.hub.people(a.b.ID), "reactions": reactions, "private_counts": counts,
 		"me":    map[string]any{"role": a.role, "can_edit": a.canEdit(), "voter": a.voter(), "name": a.name, "colour": a.colour(), "guest": a.u == nil},
 		"votes": s.voteState(ctx, a)}
 	if a.u != nil {
@@ -305,7 +307,7 @@ func (s *Server) copyObjects(ctx context.Context, uid, bid int64, objs []store.O
 	if len(ops) == 0 {
 		return nil
 	}
-	_, err := s.store.ApplyOps(ctx, bid, ops, &uid, "")
+	_, err := s.store.ApplyOps(ctx, bid, ops, &uid, "", "")
 	return err
 }
 
@@ -471,7 +473,9 @@ func cleanOp(op *store.Op) string {
 	return "a change is put or del"
 }
 
-// applyOps saves a batch of changes and passes them on to everyone else on the board.
+// applyOps saves a batch of changes and passes them on to everyone else on
+// the board. While private mode is on, a new note stays with whoever made
+// it: only their own tabs hear of it, the others only how many there are.
 func (s *Server) applyOps(w http.ResponseWriter, r *http.Request, a *actor) {
 	ctx := r.Context()
 	var in struct {
@@ -491,24 +495,44 @@ func (s *Server) applyOps(w http.ResponseWriter, r *http.Request, a *actor) {
 		return
 	}
 	app := linkApp(ctx)
+	voter := a.voter()
+	private := a.b.PrivateOf().On
+	hideAs := ""
+	if private {
+		hideAs = voter
+	}
 	puts := 0
+	hidden := map[string]bool{} // what stays private after this batch
 	for i := range in.Ops {
 		if msg := cleanOp(&in.Ops[i]); msg != "" {
 			writeErr(w, http.StatusBadRequest, msg)
 			return
 		}
 		op := &in.Ops[i]
+		cur, err := s.store.GetObject(ctx, a.b.ID, op.ID)
+		exists := err == nil
+		if exists && cur.HiddenBy != "" && cur.HiddenBy != voter {
+			// someone else's private note: not there for this person
+			writeErr(w, http.StatusNotFound, "not found")
+			return
+		}
 		if op.Op == "put" {
-			puts++
+			if !exists {
+				puts++
+			}
 			op.Obj.Source = app
 			op.Obj.UpdatedBy = a.name
-		}
-		if app != "" {
-			// a linked app changes only what it put there itself
-			if cur, err := s.store.GetObject(ctx, a.b.ID, op.ID); err == nil && cur.Source != app {
-				writeErr(w, http.StatusForbidden, "this Pocket Core link may change only what "+app+" put on the board")
-				return
+			if (exists && cur.HiddenBy != "") || (!exists && hideAs != "") {
+				hidden[op.ID] = true
+				op.Obj.Hidden = true
 			}
+		} else if exists && cur.HiddenBy != "" {
+			hidden[op.ID] = true
+		}
+		if app != "" && exists && cur.Source != app {
+			// a linked app changes only what it put there itself
+			writeErr(w, http.StatusForbidden, "this Pocket Core link may change only what "+app+" put on the board")
+			return
 		}
 	}
 	if puts > 0 {
@@ -517,12 +541,27 @@ func (s *Server) applyOps(w http.ResponseWriter, r *http.Request, a *actor) {
 			return
 		}
 	}
-	v, err := s.store.ApplyOps(ctx, a.b.ID, in.Ops, a.uid(), a.name)
+	v, err := s.store.ApplyOps(ctx, a.b.ID, in.Ops, a.uid(), a.name, hideAs)
 	if err != nil {
 		s.fail(w, err, "save changes")
 		return
 	}
-	s.hub.send(a.b.ID, in.Client, map[string]any{"type": "ops", "client": in.Client, "by": a.name, "ops": in.Ops, "version": v})
+	var open, mine []store.Op
+	for _, op := range in.Ops {
+		if hidden[op.ID] {
+			mine = append(mine, op)
+		} else {
+			open = append(open, op)
+		}
+	}
+	if len(open) > 0 {
+		s.hub.send(a.b.ID, in.Client, map[string]any{"type": "ops", "client": in.Client, "by": a.name, "ops": open, "version": v})
+	}
+	if len(mine) > 0 {
+		s.hub.sendVoter(a.b.ID, voter, in.Client, map[string]any{"type": "ops", "client": in.Client, "by": a.name, "ops": mine, "version": v})
+		counts, _ := s.store.PrivateCounts(ctx, a.b.ID)
+		s.hub.send(a.b.ID, "", map[string]any{"type": "private_counts", "counts": counts})
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"version": v})
 }
 
@@ -598,7 +637,7 @@ func (s *Server) handleAddNotes(w http.ResponseWriter, r *http.Request) {
 		op.Obj.Source = app
 		op.Obj.UpdatedBy = a.name
 	}
-	v, err := s.store.ApplyOps(ctx, a.b.ID, ops, a.uid(), a.name)
+	v, err := s.store.ApplyOps(ctx, a.b.ID, ops, a.uid(), a.name, "")
 	if err != nil {
 		s.fail(w, err, "add notes")
 		return

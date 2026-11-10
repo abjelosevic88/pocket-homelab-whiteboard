@@ -5,15 +5,16 @@ import (
 	"database/sql"
 	"encoding/json"
 	"strings"
+	"time"
 )
 
-const boardCols = `b.id, b.user_id, b.title, b.about, b.template, b.background, b.share_key, b.share_mode, b.timer_ends, b.timer_secs, b.vote, b.version, b.source, b.ext_id, b.created_at, b.updated_at,
+const boardCols = `b.id, b.user_id, b.title, b.about, b.template, b.background, b.share_key, b.share_mode, b.timer_ends, b.timer_secs, b.vote, b.version, b.source, b.ext_id, b.created_at, b.updated_at, b.private,
 	COALESCE(NULLIF(o.name, ''), o.email, '')`
 
 func scanBoard(row interface{ Scan(...any) error }, extra ...any) (*Board, error) {
 	var b Board
-	var vote string
-	dst := []any{&b.ID, &b.UserID, &b.Title, &b.About, &b.Template, &b.Background, &b.ShareKey, &b.ShareMode, &b.TimerEnds, &b.TimerSecs, &vote, &b.Version, &b.Source, &b.ExtID, &b.CreatedAt, &b.UpdatedAt, &b.OwnerName}
+	var vote, priv string
+	dst := []any{&b.ID, &b.UserID, &b.Title, &b.About, &b.Template, &b.Background, &b.ShareKey, &b.ShareMode, &b.TimerEnds, &b.TimerSecs, &vote, &b.Version, &b.Source, &b.ExtID, &b.CreatedAt, &b.UpdatedAt, &priv, &b.OwnerName}
 	if err := row.Scan(append(dst, extra...)...); err != nil {
 		return nil, notFound(err)
 	}
@@ -21,6 +22,10 @@ func scanBoard(row interface{ Scan(...any) error }, extra ...any) (*Board, error
 		vote = "{}"
 	}
 	b.Vote = json.RawMessage(vote)
+	if !json.Valid([]byte(priv)) {
+		priv = "{}"
+	}
+	b.Private = json.RawMessage(priv)
 	return &b, nil
 }
 
@@ -32,6 +37,13 @@ func (b *Board) VoteOf() Vote {
 		v.PerPerson = 3
 	}
 	return v
+}
+
+// PrivateOf decodes a board's private mode.
+func (b *Board) PrivateOf() Private {
+	var p Private
+	_ = json.Unmarshal(b.Private, &p)
+	return p
 }
 
 // CreateBoard adds a board.
@@ -85,7 +97,7 @@ func (s *Store) BoardsFor(ctx context.Context, uid int64) ([]Board, error) {
 	rows, err := s.DB.QueryContext(ctx, `SELECT `+boardCols+`,
 		CASE WHEN b.user_id = ? THEN 'owner' ELSE COALESCE(m.role, '') END,
 		COALESCE(k.starred, 0), COALESCE(k.opened_at, ''),
-		(SELECT COUNT(1) FROM objects x WHERE x.board_id = b.id),
+		(SELECT COUNT(1) FROM objects x WHERE x.board_id = b.id AND x.hidden_by = ''),
 		(SELECT COUNT(1) FROM members y WHERE y.board_id = b.id)
 		FROM boards b JOIN users o ON o.id = b.user_id
 		LEFT JOIN members m ON m.board_id = b.id AND m.user_id = ?
@@ -133,8 +145,11 @@ func (s *Store) OwnBoards(ctx context.Context, uid int64) ([]Board, error) {
 // UpdateBoard saves the editable fields.
 func (s *Store) UpdateBoard(ctx context.Context, b *Board) error {
 	b.UpdatedAt = Now()
-	_, err := s.DB.ExecContext(ctx, `UPDATE boards SET title = ?, about = ?, background = ?, share_mode = ?, share_key = ?, timer_ends = ?, timer_secs = ?, vote = ?, version = version + 1, updated_at = ? WHERE id = ?`,
-		b.Title, b.About, b.Background, b.ShareMode, b.ShareKey, b.TimerEnds, b.TimerSecs, string(b.Vote), b.UpdatedAt, b.ID)
+	if len(b.Private) == 0 {
+		b.Private = json.RawMessage(`{}`)
+	}
+	_, err := s.DB.ExecContext(ctx, `UPDATE boards SET title = ?, about = ?, background = ?, share_mode = ?, share_key = ?, timer_ends = ?, timer_secs = ?, vote = ?, private = ?, version = version + 1, updated_at = ? WHERE id = ?`,
+		b.Title, b.About, b.Background, b.ShareMode, b.ShareKey, b.TimerEnds, b.TimerSecs, string(b.Vote), string(b.Private), b.UpdatedAt, b.ID)
 	return err
 }
 
@@ -210,13 +225,13 @@ func (s *Store) RemoveMember(ctx context.Context, bid, uid int64) error {
 
 // ---- objects ----
 
-const objCols = `id, board_id, user_id, author, kind, x, y, w, h, z, data, source, updated_by, created_at, updated_at`
+const objCols = `id, board_id, user_id, author, kind, x, y, w, h, z, data, source, updated_by, created_at, updated_at, hidden_by`
 
 func scanObject(row interface{ Scan(...any) error }) (*Object, error) {
 	var o Object
 	var data string
 	var uid sql.NullInt64
-	if err := row.Scan(&o.ID, &o.BoardID, &uid, &o.Author, &o.Kind, &o.X, &o.Y, &o.W, &o.H, &o.Z, &data, &o.Source, &o.UpdatedBy, &o.CreatedAt, &o.UpdatedAt); err != nil {
+	if err := row.Scan(&o.ID, &o.BoardID, &uid, &o.Author, &o.Kind, &o.X, &o.Y, &o.W, &o.H, &o.Z, &data, &o.Source, &o.UpdatedBy, &o.CreatedAt, &o.UpdatedAt, &o.HiddenBy); err != nil {
 		return nil, notFound(err)
 	}
 	if uid.Valid {
@@ -227,12 +242,12 @@ func scanObject(row interface{ Scan(...any) error }) (*Object, error) {
 		data = "{}"
 	}
 	o.Data = json.RawMessage(data)
+	o.Hidden = o.HiddenBy != ""
 	return &o, nil
 }
 
-// Objects lists what is on a board, back to front.
-func (s *Store) Objects(ctx context.Context, bid int64) ([]Object, error) {
-	rows, err := s.DB.QueryContext(ctx, `SELECT `+objCols+` FROM objects WHERE board_id = ? ORDER BY z, created_at, id`, bid)
+func (s *Store) objects(ctx context.Context, q string, args ...any) ([]Object, error) {
+	rows, err := s.DB.QueryContext(ctx, `SELECT `+objCols+` FROM objects WHERE `+q+` ORDER BY z, created_at, id`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +263,18 @@ func (s *Store) Objects(ctx context.Context, bid int64) ([]Object, error) {
 	return out, rows.Err()
 }
 
-// GetObject loads one thing on a board.
+// Objects lists what everyone sees on a board, back to front (notes still
+// private to someone are left out).
+func (s *Store) Objects(ctx context.Context, bid int64) ([]Object, error) {
+	return s.objects(ctx, `board_id = ? AND hidden_by = ''`, bid)
+}
+
+// ObjectsFor lists what one person sees: everyone's, and their own private notes.
+func (s *Store) ObjectsFor(ctx context.Context, bid int64, voter string) ([]Object, error) {
+	return s.objects(ctx, `board_id = ? AND (hidden_by = '' OR hidden_by = ?)`, bid, voter)
+}
+
+// GetObject loads one thing on a board (private or not).
 func (s *Store) GetObject(ctx context.Context, bid int64, id string) (*Object, error) {
 	return scanObject(s.DB.QueryRowContext(ctx, `SELECT `+objCols+` FROM objects WHERE board_id = ? AND id = ?`, bid, id))
 }
@@ -260,15 +286,26 @@ type Op struct {
 	Obj *Object `json:"obj,omitempty"`
 }
 
+// versionEvery is how often, at most, the board is kept as it was while people work on it.
+const versionEvery = 10 * time.Minute
+
 // ApplyOps saves a batch of changes in one transaction and moves the
-// board's version on. A put keeps who first made the object.
-func (s *Store) ApplyOps(ctx context.Context, bid int64, ops []Op, uid *int64, who string) (int64, error) {
+// board's version on. A put keeps who first made the object; a new one
+// made while private mode is on is hidden for everyone but hideAs.
+// Deleted things go to the trash; before the first change after a quiet
+// while, the board as it was is kept as a version.
+func (s *Store) ApplyOps(ctx context.Context, bid int64, ops []Op, uid *int64, who, hideAs string) (int64, error) {
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
 	defer tx.Rollback()
 	now := Now()
+	if who != "" {
+		if err := s.autoVersion(ctx, tx, bid, who); err != nil {
+			return 0, err
+		}
+	}
 	for _, op := range ops {
 		switch op.Op {
 		case "put":
@@ -277,17 +314,42 @@ func (s *Store) ApplyOps(ctx context.Context, bid int64, ops []Op, uid *int64, w
 			if data == "" || !json.Valid([]byte(data)) {
 				data = "{}"
 			}
-			if _, err := tx.ExecContext(ctx, `INSERT INTO objects (id, board_id, user_id, author, kind, x, y, w, h, z, data, source, updated_by, created_at, updated_at)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			if _, err := tx.ExecContext(ctx, `INSERT INTO objects (id, board_id, user_id, author, kind, x, y, w, h, z, data, source, updated_by, created_at, updated_at, hidden_by)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 				ON CONFLICT(board_id, id) DO UPDATE SET kind = excluded.kind, x = excluded.x, y = excluded.y, w = excluded.w, h = excluded.h, z = excluded.z,
 				data = excluded.data, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
-				o.ID, bid, nullI(uid), who, o.Kind, o.X, o.Y, o.W, o.H, o.Z, data, o.Source, who, now, now); err != nil {
+				o.ID, bid, nullI(uid), who, o.Kind, o.X, o.Y, o.W, o.H, o.Z, data, o.Source, who, now, now, hideAs); err != nil {
 				return 0, err
 			}
 		case "del":
+			var kind, data, hidden string
+			err := tx.QueryRowContext(ctx, `SELECT kind, data, hidden_by FROM objects WHERE board_id = ? AND id = ?`, bid, op.ID).Scan(&kind, &data, &hidden)
+			if err != nil {
+				continue
+			}
+			if hidden == "" {
+				o, _ := scanObject(tx.QueryRowContext(ctx, `SELECT `+objCols+` FROM objects WHERE board_id = ? AND id = ?`, bid, op.ID))
+				if o != nil {
+					b, _ := json.Marshal(o)
+					var d struct {
+						Text  string `json:"text"`
+						Title string `json:"title"`
+					}
+					_ = json.Unmarshal([]byte(data), &d)
+					text := d.Text
+					if text == "" {
+						text = d.Title
+					}
+					if _, err := tx.ExecContext(ctx, `INSERT INTO trash (board_id, object_id, kind, text, object, deleted_by, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+						bid, op.ID, kind, truncate(text, 300), string(b), who, now); err != nil {
+						return 0, err
+					}
+				}
+			}
 			if _, err := tx.ExecContext(ctx, `DELETE FROM objects WHERE board_id = ? AND id = ?`, bid, op.ID); err != nil {
 				return 0, err
 			}
+			_, _ = tx.ExecContext(ctx, `DELETE FROM reactions WHERE board_id = ? AND object_id = ?`, bid, op.ID)
 		}
 	}
 	var v int64
@@ -297,13 +359,21 @@ func (s *Store) ApplyOps(ctx context.Context, bid int64, ops []Op, uid *int64, w
 	return v, tx.Commit()
 }
 
+func truncate(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
+}
+
 // SearchObjects finds the words on a person's boards.
 func (s *Store) SearchObjects(ctx context.Context, uid int64, q string, limit int) ([]Object, map[int64]string, error) {
 	like := "%" + strings.ToLower(q) + "%"
 	rows, err := s.DB.QueryContext(ctx, `SELECT o.id, o.board_id, o.user_id, o.author, o.kind, o.x, o.y, o.w, o.h, o.z, o.data, o.source, o.updated_by, o.created_at, o.updated_at, b.title
 		FROM objects o JOIN boards b ON b.id = o.board_id
 		LEFT JOIN members m ON m.board_id = b.id AND m.user_id = ?
-		WHERE (b.user_id = ? OR m.user_id IS NOT NULL) AND o.kind IN ('sticky','text','shape','frame') AND LOWER(json_extract(o.data, '$.text')) LIKE ?
+		WHERE (b.user_id = ? OR m.user_id IS NOT NULL) AND o.hidden_by = '' AND o.kind IN ('sticky','text','shape','frame') AND LOWER(json_extract(o.data, '$.text')) LIKE ?
 		ORDER BY o.updated_at DESC LIMIT ?`, uid, uid, like, limit)
 	if err != nil {
 		return nil, nil, err
