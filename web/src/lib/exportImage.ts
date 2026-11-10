@@ -64,10 +64,10 @@ export async function boardPNG(objs: Obj[], all: Map<string, Obj>, opts: { scale
         break
       }
       case 'sticky': {
-        const p = paper(d.color || 'yellow')
-        c.shadowColor = 'rgba(0,0,0,.18)'
-        c.shadowBlur = 10
-        c.shadowOffsetY = 4
+        const p = paper(d.color || 'light-yellow')
+        c.shadowColor = 'rgba(0,0,0,.22)'
+        c.shadowBlur = 9
+        c.shadowOffsetY = 5
         c.fillStyle = p.bg
         c.fillRect(o.x, o.y, o.w, o.h)
         c.shadowColor = 'transparent'

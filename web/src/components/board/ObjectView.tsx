@@ -68,7 +68,7 @@ export function VoteBadge({ votes, mine }: { votes?: number; mine?: number }) {
 
 function StickyView({ o, editing, onEditDone, showAuthor }: ViewProps) {
   const d = o.data
-  const p = paper(d.color || 'yellow')
+  const p = paper(d.color || 'light-yellow')
   const box = stickyBox(o)
   const [draft, setDraft] = useState(d.text || '')
   useEffect(() => { if (!editing) setDraft(d.text || '') }, [editing, d.text])

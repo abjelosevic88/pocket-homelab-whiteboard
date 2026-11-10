@@ -385,7 +385,7 @@ func TestSettingsArePersonal(t *testing.T) {
 		t.Fatalf("alice %v", m)
 	}
 	m = a.ok(a.bob, "GET", "/api/v1/settings", nil)
-	if m["background"] != "dots" || m["sticky_color"] != "yellow" || m["snap"] == true {
+	if m["background"] != "dots" || m["sticky_color"] != "light-yellow" || m["snap"] == true {
 		t.Fatalf("bob got alice's settings: %v", m)
 	}
 	a.ok(a.alice, "PUT", "/api/v1/settings", map[string]any{"background": "lava"})

@@ -25,7 +25,7 @@ export function Miniature({ shapes, bg = 'dots' }: { shapes?: PreviewShape[]; bg
         {shapes!.map((s, i) => {
           switch (s.k) {
             case 'frame': return <g key={i}><rect x={s.x} y={s.y} width={s.w} height={s.h} fill={tint(s.c)} stroke="var(--wb-frame-line)" strokeWidth={Math.max(2, b.w / 300)} /></g>
-            case 'sticky': return <rect key={i} x={s.x} y={s.y} width={s.w} height={s.h} rx={2} fill={paper(s.c || 'yellow').bg} />
+            case 'sticky': return <rect key={i} x={s.x} y={s.y} width={s.w} height={s.h} rx={0} fill={paper(s.c || 'light-yellow').bg} />
             case 'shape': return <path key={i} transform={`translate(${s.x} ${s.y})`} d={shapePath(s.s as never, s.w, s.h)} fill={s.c === 'none' ? 'none' : paper(s.c || 'white').bg} stroke="var(--wb-stroke)" strokeWidth={Math.max(2, b.w / 300)} />
             case 'image': return <rect key={i} x={s.x} y={s.y} width={s.w} height={s.h} fill="var(--wb-image)" />
             case 'text': return <rect key={i} x={s.x} y={s.y + s.h * 0.3} width={Math.min(s.w, 600)} height={Math.max(6, s.h * 0.4)} rx={3} fill="var(--wb-text-bar)" />

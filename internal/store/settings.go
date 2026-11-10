@@ -15,7 +15,7 @@ var boxKeys = map[string]bool{"title": true, "setup_complete": true}
 // defaults returns the settings a person starts with.
 func (s *Store) defaults() Settings {
 	return Settings{Title: DefaultTitle, DateFormat: "auto", TimeFormat: "auto", WeekStart: 1,
-		Background: "dots", StickyColor: "yellow", Snap: false, Cursors: true, WheelZoom: false,
+		Background: "dots", StickyColor: "light-yellow", Snap: false, Cursors: true, WheelZoom: false,
 		NotesFolder: "Whiteboards", FilesFolder: "Whiteboards", AIHelp: true,
 		NotifyShared: true, NotifyFormat: "apprise", Conns: map[string]Conn{}, AIProvider: "auto"}
 }

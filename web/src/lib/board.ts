@@ -4,22 +4,30 @@ import type { Obj, ObjData, ShapeForm, PreviewShape } from './types'
 
 // ---- colours ----
 
-/** Sticky-note colours (paper on screen; also fills for shapes and frames). */
+/** Sticky-note colours: the sixteen of a Miro board, in its order (also fills for shapes and frames). */
+const INK = '#1a1a1a'
 export const STICKY: Record<string, { bg: string; ink: string; name: string }> = {
-  yellow: { bg: '#fff176', ink: '#3b3200', name: 'Yellow' },
-  orange: { bg: '#ffc46b', ink: '#3d2400', name: 'Orange' },
-  pink: { bg: '#ffb3d1', ink: '#46102a', name: 'Pink' },
-  red: { bg: '#ff8a80', ink: '#470b06', name: 'Red' },
-  violet: { bg: '#d0b8ff', ink: '#2a1052', name: 'Violet' },
-  blue: { bg: '#9ecbff', ink: '#062a52', name: 'Blue' },
-  cyan: { bg: '#8ef0e8', ink: '#003b37', name: 'Turquoise' },
-  green: { bg: '#b8ef9d', ink: '#123d05', name: 'Green' },
-  lime: { bg: '#e2f78a', ink: '#2d3600', name: 'Lime' },
-  gray: { bg: '#e3e5e8', ink: '#24272c', name: 'Grey' },
-  white: { bg: '#ffffff', ink: '#1d2024', name: 'White' },
-  black: { bg: '#2b2f36', ink: '#f2f3f5', name: 'Black' },
+  'light-yellow': { bg: '#fff9b1', ink: INK, name: 'Light yellow' },
+  yellow: { bg: '#f5d128', ink: INK, name: 'Yellow' },
+  orange: { bg: '#ff9d48', ink: INK, name: 'Orange' },
+  'light-green': { bg: '#d5f692', ink: INK, name: 'Light green' },
+  green: { bg: '#c9df56', ink: INK, name: 'Green' },
+  'dark-green': { bg: '#93d275', ink: INK, name: 'Dark green' },
+  cyan: { bg: '#67c6c0', ink: INK, name: 'Cyan' },
+  'light-pink': { bg: '#ffcee0', ink: INK, name: 'Light pink' },
+  pink: { bg: '#ea94bb', ink: INK, name: 'Pink' },
+  violet: { bg: '#be88c7', ink: INK, name: 'Violet' },
+  red: { bg: '#f16c7f', ink: INK, name: 'Red' },
+  'light-blue': { bg: '#a6ccf5', ink: INK, name: 'Light blue' },
+  blue: { bg: '#6cd8fa', ink: INK, name: 'Blue' },
+  'dark-blue': { bg: '#9ea9ff', ink: INK, name: 'Dark blue' },
+  gray: { bg: '#e6e6e6', ink: INK, name: 'Grey' },
+  black: { bg: '#000000', ink: '#ffffff', name: 'Black' },
+  // older names, still drawn (and white for shapes)
+  white: { bg: '#ffffff', ink: INK, name: 'White' },
+  lime: { bg: '#d5f692', ink: INK, name: 'Light green' },
 }
-export const STICKY_KEYS = Object.keys(STICKY)
+export const STICKY_KEYS = Object.keys(STICKY).filter(k => k !== 'white' && k !== 'lime')
 
 /** Pen, line and text colours. */
 export const INKS = ['#1d2024', '#5b6472', '#e5484d', '#f76b15', '#e2a500', '#2b8a3e', '#12a594', '#2f80ed', '#8e4ec6', '#d6409f', '#ffffff']
@@ -65,7 +73,7 @@ export function newID(): string {
 }
 
 export const STICKY_SIZE = 200
-export const FONT = "Inter, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+export const FONT = "'Open Sans', -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
 
 export interface Rect { x: number; y: number; w: number; h: number }
 export interface Pt { x: number; y: number }
@@ -311,6 +319,8 @@ export function wrap(text: string, width: number, size: number, bold = false): s
 }
 
 const fitCache = new Map<string, number>()
+/** Forget the fitted sizes (the board font finished loading). */
+export function clearFit() { fitCache.clear() }
 
 /** The biggest font size (max → min) at which text fits a box, like a sticky note. */
 export function fitSize(text: string, w: number, h: number, max = 40, min = 8, bold = false): number {
@@ -331,8 +341,8 @@ export function fitSize(text: string, w: number, h: number, max = 40, min = 8, b
 
 /** A sticky note's text box (padding inside the paper). */
 export function stickyBox(o: { w: number; h: number }): Rect {
-  const p = Math.max(8, o.w * 0.08)
-  return { x: p, y: p, w: Math.max(1, o.w - 2 * p), h: Math.max(1, o.h - 2 * p - o.h * 0.04) }
+  const p = Math.max(8, o.w * 0.1)
+  return { x: p, y: p, w: Math.max(1, o.w - 2 * p), h: Math.max(1, o.h - 2 * p) }
 }
 
 // ---- reading order, frames ----

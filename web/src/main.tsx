@@ -1,6 +1,8 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import '@fontsource/open-sans/400.css'
+import '@fontsource/open-sans/600.css'
 import './styles/base.css'
 import './styles/whiteboard.css'
 import './styles/app.css'

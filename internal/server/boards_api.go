@@ -14,7 +14,7 @@ import (
 
 var (
 	backgrounds  = []string{"dots", "grid", "plain"}
-	stickyColors = []string{"yellow", "orange", "pink", "red", "violet", "blue", "cyan", "green", "lime", "gray", "white", "black"}
+	stickyColors = []string{"light-yellow", "yellow", "orange", "light-green", "green", "dark-green", "cyan", "light-pink", "pink", "violet", "red", "light-blue", "blue", "dark-blue", "black", "gray", "white", "lime"}
 	reObjID      = regexp.MustCompile(`^[A-Za-z0-9_-]{1,40}$`)
 )
 
@@ -572,7 +572,7 @@ func (s *Server) handleAddNotes(w http.ResponseWriter, r *http.Request) {
 	}
 	colour := in.Color
 	if !oneOf(colour, stickyColors) {
-		colour = firstNonEmpty(s.settingsOf(ctx, a.u.ID).StickyColor, "yellow")
+		colour = firstNonEmpty(s.settingsOf(ctx, a.u.ID).StickyColor, "light-yellow")
 	}
 	objs, _ := s.store.Objects(ctx, a.b.ID)
 	minX, maxY, z := 0.0, 0.0, 0.0

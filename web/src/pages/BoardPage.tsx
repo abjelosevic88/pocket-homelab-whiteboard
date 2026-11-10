@@ -8,7 +8,7 @@ import { useApp } from '../lib/app-context'
 import { useAppState, DataProvider } from '../lib/data'
 import type { Board, BoardDoc, Member, Obj, ObjData, Op, Person, ShapeForm, Votes } from '../lib/types'
 import {
-  INKS, STICKY, STICKY_KEYS, SHAPES, STICKY_SIZE, center, framesInOrder, frameOf, inside, linePath, nearLine, newID, overlaps, paper, rectOf, textOf, union, withData,
+  INKS, STICKY, STICKY_KEYS, clearFit, SHAPES, STICKY_SIZE, center, framesInOrder, frameOf, inside, linePath, nearLine, newID, overlaps, paper, rectOf, textOf, union, withData,
   type Pt, type Rect,
 } from '../lib/board'
 import { boardPNG } from '../lib/exportImage'
@@ -171,7 +171,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
   const [shapeForm, setShapeForm] = useState<ShapeForm>('rect')
   const [lineCurve, setLineCurve] = useState<'straight' | 'elbow' | 'curve'>('curve')
   const [pen, setPen] = useState({ color: '#1d2024', width: 4, highlight: false })
-  const [stickyColor, setStickyColor] = useState(settings?.sticky_color || 'yellow')
+  const [stickyColor, setStickyColor] = useState(settings?.sticky_color || 'light-yellow')
   const [flyout, setFlyout] = useState<Tool | null>(null)
 
   const [marquee, setMarquee] = useState<Rect | null>(null)
@@ -340,6 +340,8 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
     open()
     return () => { stopped = true; es?.close(); window.clearTimeout(t) }
   }, [conn]) // eslint-disable-line react-hooks/exhaustive-deps
+  // once the board font has loaded, fit every note's text again with it
+  useEffect(() => { document.fonts?.ready.then(() => { clearFit(); setObjsState(m => new Map(m)) }) }, [])
   // cursors that went quiet fade out
   useEffect(() => {
     const t = window.setInterval(() => setCursors(m => { const now = Date.now(); let changed = false; const n = new Map(m); for (const [k, c] of n) if (now - c.at > 20000) { n.delete(k); changed = true } return changed ? n : m }), 5000)
@@ -1454,10 +1456,10 @@ function ContextBar({ pos, list, canEdit, guest, onColour, onStyle, onFront, onB
       {onUnvote && <button type="button" className="btn ghost sm" onClick={onUnvote}>−1</button>}
       {coloured && !locked && (
         <div className="wb-ctx-drop">
-          <button type="button" className="wb-ctx-colour" onClick={() => setOpen(open === 'colour' ? null : 'colour')} title="Colour" aria-label="Colour" style={{ background: paper(cur || 'yellow').bg }} />
+          <button type="button" className="wb-ctx-colour" onClick={() => setOpen(open === 'colour' ? null : 'colour')} title="Colour" aria-label="Colour" style={{ background: paper(cur || 'light-yellow').bg }} />
           {open === 'colour' && <div className="wb-ctx-pop wb-swatches">
             {kinds.has('shape') && <button type="button" className="wb-sw none" title="No fill" aria-label="No fill" onClick={() => { onStyle({ fill: 'none' }, o => o.kind === 'shape'); setOpen(null) }} />}
-            {STICKY_KEYS.map(c => <button key={c} type="button" className={`wb-sw ${c === cur ? 'on' : ''}`} style={{ background: STICKY[c].bg }} title={STICKY[c].name} aria-label={STICKY[c].name} onClick={() => { onColour(c); setOpen(null) }} />)}
+            {(kinds.has('shape') && !kinds.has('sticky') ? [...STICKY_KEYS, 'white'] : STICKY_KEYS).map(c => <button key={c} type="button" className={`wb-sw ${c === cur ? 'on' : ''}`} style={{ background: STICKY[c].bg }} title={STICKY[c].name} aria-label={STICKY[c].name} onClick={() => { onColour(c); setOpen(null) }} />)}
           </div>}
         </div>
       )}

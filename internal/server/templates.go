@@ -87,7 +87,7 @@ var templates = []template{
 			t.text(-500, -620, 1000, "Brainstorm", 48, true)
 			t.text(-500, -550, 1200, "Press N (or the note button) for a new note. Quantity first — sort them out later.", 20, false)
 			t.shape(-200, -110, 400, 220, "ellipse", "What is our question?", "yellow")
-			for i, c := range []string{"yellow", "orange", "pink", "blue", "green", "violet"} {
+			for i, c := range []string{"light-yellow", "orange", "light-pink", "light-blue", "light-green", "violet"} {
 				x := []float64{-620, -100, 420, -620, -100, 420}[i]
 				y := []float64{-420, -420, -420, 200, 200, 200}[i]
 				t.sticky(x, y, "", c)
@@ -102,7 +102,7 @@ var templates = []template{
 			for i, c := range []col{{"To do", "gray"}, {"Doing", "yellow"}, {"Done", "green"}} {
 				t.frame(float64(i)*520, 0, 460, 1000, c.name, c.fill)
 			}
-			t.sticky(30, 60, "Write the first task here", "yellow")
+			t.sticky(30, 60, "Write the first task here", "light-yellow")
 			return t.objs
 		}},
 	{Key: "swot", Title: "SWOT", About: "Strengths, weaknesses, opportunities and threats in four squares.", Emoji: "🧭",

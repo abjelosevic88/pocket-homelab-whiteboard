@@ -84,13 +84,13 @@ func (s *Server) seedDemo(ctx context.Context, owner int64) error {
 		next := []string{"Split CI tests in parallel", "One owner for release notes per sprint", "No-meeting Wednesday afternoon", "Add tax cases to the test plan"}
 		people := []int64{owner, ana, marko}
 		for i, t := range well {
-			items = append(items, sticky(30+float64(i%3)*205, 60+float64(i/3)*215, t, "green", people[i%3]))
+			items = append(items, sticky(30+float64(i%3)*205, 60+float64(i/3)*215, t, "light-green", people[i%3]))
 		}
 		for i, t := range better {
-			items = append(items, sticky(700+30+float64(i%3)*205, 60+float64(i/3)*215, t, "pink", people[(i+1)%3]))
+			items = append(items, sticky(700+30+float64(i%3)*205, 60+float64(i/3)*215, t, "light-pink", people[(i+1)%3]))
 		}
 		for i, t := range next {
-			items = append(items, sticky(1400+30+float64(i%3)*205, 60+float64(i/3)*215, t, "blue", people[(i+2)%3]))
+			items = append(items, sticky(1400+30+float64(i%3)*205, 60+float64(i/3)*215, t, "light-blue", people[(i+2)%3]))
 		}
 		put(b.ID, items)
 		_ = s.store.SetMember(ctx, b.ID, ana, "editor")
@@ -127,7 +127,7 @@ func (s *Server) seedDemo(ctx context.Context, owner int64) error {
 			colour string
 			notes  []string
 		}{
-			{"Eat from it", "green", -1300, -520, "lime", []string{"Raised beds for tomatoes", "Herb spiral by the kitchen door", "Two apple trees", "Strawberries in pots"}},
+			{"Eat from it", "green", -1300, -520, "light-green", []string{"Raised beds for tomatoes", "Herb spiral by the kitchen door", "Two apple trees", "Strawberries in pots"}},
 			{"Play", "orange", 500, -520, "orange", []string{"Swing on the old walnut", "Small lawn for football", "Sandpit with a lid"}},
 			{"Rest", "blue", -1300, 260, "blue", []string{"Shade sail over the terrace", "Bench under the pergola", "Outdoor lights on a timer", "Hammock"}},
 			{"Less work", "violet", 500, 260, "violet", []string{"Drip watering on a timer", "Gravel instead of the side lawn", "Compost bin near the beds"}},
@@ -176,13 +176,13 @@ func (s *Server) seedDemo(ctx context.Context, owner int64) error {
 		doing := []string{"New pricing table", "Speed: compress images"}
 		done := []string{"Pick the domain", "Menu structure", "Logo in SVG", "Contact form to email"}
 		for i, t := range todo {
-			items = append(items, sticky(30+float64(i%2)*205, 60+float64(i/2)*215, t, "yellow", []int64{owner, ana}[i%2]))
+			items = append(items, sticky(30+float64(i%2)*205, 60+float64(i/2)*215, t, "light-yellow", []int64{owner, ana}[i%2]))
 		}
 		for i, t := range doing {
 			items = append(items, sticky(520+30+float64(i%2)*205, 60, t, "orange", []int64{ana, owner}[i%2]))
 		}
 		for i, t := range done {
-			items = append(items, sticky(1040+30+float64(i%2)*205, 60+float64(i/2)*215, t, "green", owner))
+			items = append(items, sticky(1040+30+float64(i%2)*205, 60+float64(i/2)*215, t, "light-green", owner))
 		}
 		put(b.ID, items)
 		_ = s.store.SetMember(ctx, b.ID, ana, "editor")
@@ -224,7 +224,7 @@ func (s *Server) seedDemo(ctx context.Context, owner int64) error {
 		join(2, 3, "no")
 		join(3, 1, "")
 		join(4, 5, "")
-		items = append(items, sticky(700, 120, "Ask for allergies here too?", "yellow", marko))
+		items = append(items, sticky(700, 120, "Ask for allergies here too?", "light-yellow", marko))
 		items = append(items, sticky(700, 680, "Send a reminder the day before", "cyan", ana))
 		put(b.ID, items)
 		_ = s.store.SetMember(ctx, b.ID, marko, "viewer")
@@ -264,7 +264,7 @@ func (s *Server) seedDemo(ctx context.Context, owner int64) error {
 					if i == 1 {
 						by = owner
 					}
-					items = append(items, sticky(dx, dy, t, map[string]string{"blue": "cyan", "orange": "orange", "green": "lime", "gray": "white"}[br.fill], by))
+					items = append(items, sticky(dx, dy, t, map[string]string{"blue": "light-blue", "orange": "orange", "green": "light-green", "gray": "gray"}[br.fill], by))
 				}
 			}
 			put(b.ID, items)

@@ -226,11 +226,11 @@ span.chip { cursor: default; }
 /* ================= Pocket Whiteboard: the board list ================= */
 :root {
   --wb-bg: #f6f6f4; --wb-dot: rgba(30, 30, 40, .16); --wb-ink: #1d2024; --wb-stroke: #3d434c; --wb-frame-line: #c8ccd2; --wb-image: #d9dce1; --wb-text-bar: #9aa1ab;
-  --wb-sel: #2f80ed; --wb-chrome: rgba(255, 255, 255, .96); --wb-chrome-line: rgba(16, 16, 24, .08);
+  --wb-sel: #4262ff; --wb-chrome: rgba(255, 255, 255, .96); --wb-chrome-line: rgba(16, 16, 24, .08);
 }
 [data-theme="dark"] {
   --wb-bg: #17181b; --wb-dot: rgba(255, 255, 255, .14); --wb-ink: #eceef2; --wb-stroke: #b9bfc8; --wb-frame-line: #4a4f58; --wb-image: #3a3e45; --wb-text-bar: #7c838d;
-  --wb-sel: #5b9cff; --wb-chrome: rgba(32, 33, 37, .96); --wb-chrome-line: rgba(255, 255, 255, .08);
+  --wb-sel: #6b85ff; --wb-chrome: rgba(32, 33, 37, .96); --wb-chrome-line: rgba(255, 255, 255, .08);
 }
 .sec-h { font-size: 13px; font-weight: 650; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin: 0 0 10px; }
 .search-input { position: relative; display: flex; align-items: center; min-width: 180px; max-width: 360px; }
@@ -301,9 +301,10 @@ span.chip { cursor: default; }
 
 /* things on the board */
 .ob { position: absolute; box-sizing: border-box; }
-.ob-sticky { display: flex; box-shadow: 0 1px 1px rgba(0, 0, 0, .06), 0 6px 14px -6px rgba(0, 0, 0, .28); cursor: default; }
-.ob-st-text { width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; line-height: 1.25; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; overflow: hidden; font-family: Inter, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; box-sizing: border-box; }
-.ob-author { position: absolute; left: 8px; bottom: 5px; font-size: 11px; opacity: 0; transition: opacity .15s; pointer-events: none; color: inherit; }
+/* the Miro paper: square, no border, lifted at the bottom edge */
+.ob-sticky { display: flex; border-radius: 0; cursor: default; box-shadow: 0 0 0 .5px rgba(0, 0, 0, .05), 0 1px 1px rgba(0, 0, 0, .07), 0 9px 8px -7px rgba(0, 0, 0, .32), 0 16px 14px -14px rgba(0, 0, 0, .28); }
+.ob-st-text { width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; line-height: 1.25; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; overflow: hidden; font-family: 'Open Sans', -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-weight: 400; letter-spacing: 0; box-sizing: border-box; -webkit-font-smoothing: antialiased; }
+.ob-author { position: absolute; left: 10px; bottom: 7px; font-family: 'Open Sans', sans-serif; font-size: 11px; opacity: 0; transition: opacity .15s; pointer-events: none; color: inherit; }
 .ob-sticky:hover .ob-author { opacity: .55; }
 .ob-text .ob-tx { line-height: 1.3; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--wb-ink); }
 .ob-text.is-empty .ob-tx { opacity: .4; }
@@ -366,12 +367,12 @@ span.chip { cursor: default; }
 .wb-tool-dot { position: absolute; right: 6px; bottom: 6px; width: 9px; height: 9px; border-radius: 3px; box-shadow: 0 0 0 1.5px var(--wb-chrome); }
 .wb-tool-more { position: absolute; right: 4px; bottom: 4px; width: 0; height: 0; border-left: 4px solid transparent; border-bottom: 4px solid currentColor; opacity: .5; }
 .wb-tools-sep { height: 1px; background: var(--border); margin: 3px 6px; }
-.wb-fly { position: absolute; left: calc(100% + 8px); top: 40px; width: 216px; padding: 10px; border-radius: 12px; display: flex; flex-direction: column; gap: 10px; }
+.wb-fly { position: absolute; left: calc(100% + 8px); top: 40px; width: 160px; padding: 10px; border-radius: 12px; display: flex; flex-direction: column; gap: 10px; }
 .wb-fly p { margin: 0; }
 .wb-fly-grid { display: grid; grid-template-columns: repeat(4, 40px); gap: 4px; width: auto; }
 .wb-fly-grid p { grid-column: 1 / -1; }
-.wb-swatches { display: grid; grid-template-columns: repeat(6, 26px); gap: 6px; }
-.wb-sw { width: 26px; height: 26px; border-radius: 6px; border: 0; cursor: pointer; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .1); padding: 0; }
+.wb-swatches { display: grid; grid-template-columns: repeat(4, 28px); gap: 8px; }
+.wb-sw { width: 28px; height: 28px; border-radius: 4px; border: 0; cursor: pointer; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .1); padding: 0; }
 .wb-sw.round { border-radius: 50%; }
 .wb-sw.on { box-shadow: 0 0 0 2px var(--wb-chrome), 0 0 0 4px var(--wb-sel); }
 .wb-sw.none { background: linear-gradient(135deg, transparent 45%, #e5484d 45%, #e5484d 55%, transparent 55%), var(--surface); }
