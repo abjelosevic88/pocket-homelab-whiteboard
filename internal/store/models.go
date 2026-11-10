@@ -38,6 +38,8 @@ type Board struct {
 	TimerSecs  int             `json:"timer_secs"`
 	Vote       json.RawMessage `json:"vote"`
 	Private    json.RawMessage `json:"private"`
+	Anonymous  bool            `json:"anonymous"`
+	Poker      json.RawMessage `json:"-"`
 	Version    int64           `json:"version"`
 	Source     string          `json:"source,omitempty"`
 	ExtID      string          `json:"ext_id,omitempty"`

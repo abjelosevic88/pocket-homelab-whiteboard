@@ -189,6 +189,10 @@ func (s *Server) cursor(w http.ResponseWriter, r *http.Request, a *actor) {
 		return
 	}
 	ev := map[string]any{"type": "cursor", "client": in.Client, "x": in.X, "y": in.Y, "sel": in.Sel, "gone": in.Gone, "name": a.name, "colour": a.colour(), "voter": a.voter()}
+	if a.b.Anonymous {
+		// nobody can tell who is writing by following a pointer
+		ev["name"], ev["colour"], ev["voter"], ev["sel"] = someone, "#8a919b", "", nil
+	}
 	if v := in.View; v != nil && finite(v.X) && finite(v.Y) && finite(v.W) && finite(v.H) && v.W > 0 && v.H > 0 {
 		ev["view"] = v
 	}

@@ -8,13 +8,13 @@ import (
 	"time"
 )
 
-const boardCols = `b.id, b.user_id, b.title, b.about, b.template, b.background, b.share_key, b.share_mode, b.timer_ends, b.timer_secs, b.vote, b.version, b.source, b.ext_id, b.created_at, b.updated_at, b.private,
+const boardCols = `b.id, b.user_id, b.title, b.about, b.template, b.background, b.share_key, b.share_mode, b.timer_ends, b.timer_secs, b.vote, b.version, b.source, b.ext_id, b.created_at, b.updated_at, b.private, b.anonymous, b.poker,
 	COALESCE(NULLIF(o.name, ''), o.email, '')`
 
 func scanBoard(row interface{ Scan(...any) error }, extra ...any) (*Board, error) {
 	var b Board
-	var vote, priv string
-	dst := []any{&b.ID, &b.UserID, &b.Title, &b.About, &b.Template, &b.Background, &b.ShareKey, &b.ShareMode, &b.TimerEnds, &b.TimerSecs, &vote, &b.Version, &b.Source, &b.ExtID, &b.CreatedAt, &b.UpdatedAt, &priv, &b.OwnerName}
+	var vote, priv, poker string
+	dst := []any{&b.ID, &b.UserID, &b.Title, &b.About, &b.Template, &b.Background, &b.ShareKey, &b.ShareMode, &b.TimerEnds, &b.TimerSecs, &vote, &b.Version, &b.Source, &b.ExtID, &b.CreatedAt, &b.UpdatedAt, &priv, &b.Anonymous, &poker, &b.OwnerName}
 	if err := row.Scan(append(dst, extra...)...); err != nil {
 		return nil, notFound(err)
 	}
@@ -26,6 +26,10 @@ func scanBoard(row interface{ Scan(...any) error }, extra ...any) (*Board, error
 		priv = "{}"
 	}
 	b.Private = json.RawMessage(priv)
+	if !json.Valid([]byte(poker)) {
+		poker = "{}"
+	}
+	b.Poker = json.RawMessage(poker)
 	return &b, nil
 }
 
@@ -37,6 +41,30 @@ func (b *Board) VoteOf() Vote {
 		v.PerPerson = 3
 	}
 	return v
+}
+
+// Poker is a round of planning poker on one thing: everyone picks a number,
+// nobody sees the others' picks until it is shown.
+type Poker struct {
+	Object   string            `json:"object,omitempty"`
+	By       string            `json:"by,omitempty"`
+	Started  string            `json:"started_at,omitempty"`
+	Revealed bool              `json:"revealed,omitempty"`
+	Picks    map[string]string `json:"picks,omitempty"` // voter → value
+	Names    map[string]string `json:"names,omitempty"` // voter → name
+}
+
+// PokerOf decodes a board's planning poker round.
+func (b *Board) PokerOf() Poker {
+	var p Poker
+	_ = json.Unmarshal(b.Poker, &p)
+	if p.Picks == nil {
+		p.Picks = map[string]string{}
+	}
+	if p.Names == nil {
+		p.Names = map[string]string{}
+	}
+	return p
 }
 
 // PrivateOf decodes a board's private mode.
@@ -149,8 +177,11 @@ func (s *Store) UpdateBoard(ctx context.Context, b *Board) error {
 	if len(b.Private) == 0 {
 		b.Private = json.RawMessage(`{}`)
 	}
-	_, err := s.DB.ExecContext(ctx, `UPDATE boards SET title = ?, about = ?, background = ?, share_mode = ?, share_key = ?, timer_ends = ?, timer_secs = ?, vote = ?, private = ?, version = version + 1, updated_at = ? WHERE id = ?`,
-		b.Title, b.About, b.Background, b.ShareMode, b.ShareKey, b.TimerEnds, b.TimerSecs, string(b.Vote), string(b.Private), b.UpdatedAt, b.ID)
+	if len(b.Poker) == 0 {
+		b.Poker = json.RawMessage(`{}`)
+	}
+	_, err := s.DB.ExecContext(ctx, `UPDATE boards SET title = ?, about = ?, background = ?, share_mode = ?, share_key = ?, timer_ends = ?, timer_secs = ?, vote = ?, private = ?, anonymous = ?, poker = ?, version = version + 1, updated_at = ? WHERE id = ?`,
+		b.Title, b.About, b.Background, b.ShareMode, b.ShareKey, b.TimerEnds, b.TimerSecs, string(b.Vote), string(b.Private), b.Anonymous, string(b.Poker), b.UpdatedAt, b.ID)
 	return err
 }
 

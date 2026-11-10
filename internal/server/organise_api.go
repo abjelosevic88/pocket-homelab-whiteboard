@@ -324,6 +324,7 @@ func (s *Server) handleUnfurl(w http.ResponseWriter, r *http.Request) {
 
 type cardData struct {
 	Text     string `json:"text"`
+	Column   string `json:"column"`
 	Due      string `json:"due"`
 	Done     bool   `json:"done"`
 	Assignee *struct {
@@ -377,6 +378,7 @@ func (s *Server) handleCardTask(w http.ResponseWriter, r *http.Request) {
 		if d.Done {
 			_ = sib.client.Do(ctx, http.MethodPost, fmt.Sprintf("/api/v1/tasks/%d/complete", t.ID), nil, map[string]any{"done": true}, nil)
 		}
+		s.taskColumnTag(ctx, sib, t.ID, d.Column)
 		ops := []store.Op{{Op: "put", ID: o.ID, Obj: o}}
 		v, err := s.store.ApplyOps(ctx, a.b.ID, ops, a.uid(), a.name, "")
 		if err != nil {
@@ -399,7 +401,44 @@ func (s *Server) handleCardTask(w http.ResponseWriter, r *http.Request) {
 		s.appFail(w, appTasks, err)
 		return
 	}
+	s.taskColumnTag(ctx, sib, d.Task.ID, d.Column)
 	writeJSON(w, http.StatusOK, map[string]any{"object": o, "text": "Pocket Tasks is up to date", "url": d.Task.URL})
+}
+
+// taskColumnTag marks a task "doing" while its card sits in a Kanban
+// "Doing" column (Pocket Tasks has only open and done).
+func (s *Server) taskColumnTag(ctx context.Context, sib *siblingConn, id int64, column string) {
+	if column == "" {
+		return
+	}
+	var raw json.RawMessage
+	if err := sib.client.Do(ctx, http.MethodGet, fmt.Sprintf("/api/v1/tasks/%d", id), nil, nil, &raw); err != nil {
+		return
+	}
+	var t struct {
+		Tags []string        `json:"tags"`
+		Task json.RawMessage `json:"task"`
+	}
+	_ = json.Unmarshal(raw, &t)
+	if t.Tags == nil && len(t.Task) > 0 {
+		_ = json.Unmarshal(t.Task, &t)
+	}
+	tags, has := []string{}, false
+	for _, tg := range t.Tags {
+		if strings.EqualFold(tg, "doing") {
+			has = true
+			continue
+		}
+		tags = append(tags, tg)
+	}
+	want := column == "doing"
+	if want == has {
+		return
+	}
+	if want {
+		tags = append(tags, "doing")
+	}
+	_ = sib.client.Do(ctx, http.MethodPut, fmt.Sprintf("/api/v1/tasks/%d", id), nil, map[string]any{"tags": tags}, nil)
 }
 
 // handleCardsPull brings what changed in Pocket Tasks back onto the board's

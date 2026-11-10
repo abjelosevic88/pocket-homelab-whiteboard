@@ -23,12 +23,15 @@ import (
 // needs and never kept, so a link switched off in Core applies at once.
 
 const (
-	scopeTasksWrite = "tasks:write"
-	scopeTasksRead  = "tasks:read"
-	scopeNotesWrite = "notes:write"
-	scopeChatRead   = "chat:read"
-	scopeChatWrite  = "chat:write"
-	scopeFilesWrite = "files:write"
+	scopeTasksWrite    = "tasks:write"
+	scopeTasksRead     = "tasks:read"
+	scopeNotesWrite    = "notes:write"
+	scopeChatRead      = "chat:read"
+	scopeChatWrite     = "chat:write"
+	scopeFilesWrite    = "files:write"
+	scopeProjectsRead  = "projects:read"
+	scopeProjectsWrite = "projects:write"
+	scopeCalendarWrite = "calendar:write"
 )
 
 // pocketApp is one sibling Pocket app Whiteboard can reach.
@@ -39,11 +42,13 @@ type pocketApp struct {
 }
 
 var (
-	appTasks   = pocketApp{"tasks", "Pocket Tasks", []string{scopeTasksWrite, scopeTasksRead}, "Turn the sticky notes you pick into tasks, and keep cards on a board in step with your tasks (done, due date, title)"}
-	appNotes   = pocketApp{"notes", "Pocket Notes", []string{scopeNotesWrite}, "Keep a board's notes as a note, grouped by frame and colour"}
-	appChat    = pocketApp{"chat", "Pocket Chat", []string{scopeChatRead, scopeChatWrite}, "Send a board's link to a chat, so the others can join in"}
-	appFiles   = pocketApp{"files", "Pocket Files", []string{scopeFilesWrite}, "Keep a picture of a board in your files"}
-	pocketApps = []pocketApp{appTasks, appNotes, appChat, appFiles}
+	appTasks    = pocketApp{"tasks", "Pocket Tasks", []string{scopeTasksWrite, scopeTasksRead}, "Turn the sticky notes you pick into tasks, and keep cards on a board in step with your tasks (done, due date, title)"}
+	appNotes    = pocketApp{"notes", "Pocket Notes", []string{scopeNotesWrite}, "Keep a board's notes as a note, grouped by frame and colour"}
+	appChat     = pocketApp{"chat", "Pocket Chat", []string{scopeChatRead, scopeChatWrite}, "Send a board's link to a chat, so the others can join in"}
+	appFiles    = pocketApp{"files", "Pocket Files", []string{scopeFilesWrite}, "Keep a picture of a board in your files"}
+	appProjects = pocketApp{"projects", "Pocket Projects", []string{scopeProjectsRead, scopeProjectsWrite}, "Make a card on a board an issue in a team, and keep its title, due date and Kanban column in step"}
+	appCalendar = pocketApp{"calendar", "Pocket Calendar", []string{scopeCalendarWrite}, "Put a card's due date on your calendar"}
+	pocketApps  = []pocketApp{appTasks, appNotes, appChat, appFiles, appProjects, appCalendar}
 )
 
 func appBySlug(slug string) (pocketApp, bool) {

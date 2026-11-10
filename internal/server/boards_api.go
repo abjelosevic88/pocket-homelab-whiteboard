@@ -33,7 +33,8 @@ func finite(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) && math
 func boardOut(b *store.Board, a *actor) map[string]any {
 	out := map[string]any{"id": b.ID, "title": b.Title, "about": b.About, "template": b.Template, "background": b.Background,
 		"share_mode": b.ShareMode, "timer_ends": b.TimerEnds, "timer_secs": b.TimerSecs, "vote": b.VoteOf(), "version": b.Version,
-		"owner_name": b.OwnerName, "owner_id": b.UserID, "private": b.PrivateOf(), "created_at": b.CreatedAt, "updated_at": b.UpdatedAt}
+		"owner_name": b.OwnerName, "owner_id": b.UserID, "private": b.PrivateOf(), "created_at": b.CreatedAt, "updated_at": b.UpdatedAt,
+		"anonymous": b.Anonymous, "poker": pokerOut(b, a)}
 	if a != nil {
 		out["role"] = a.role
 		if a.owner() {
@@ -179,6 +180,9 @@ func (s *Server) boardDoc(ctx context.Context, a *actor) (map[string]any, error)
 	objs, err := s.store.ObjectsFor(ctx, a.b.ID, a.voter())
 	if err != nil {
 		return nil, err
+	}
+	if a.b.Anonymous {
+		objs = anonymise(objs)
 	}
 	reactions, _ := s.store.Reactions(ctx, a.b.ID, "")
 	counts, _ := s.store.PrivateCounts(ctx, a.b.ID)
@@ -525,6 +529,10 @@ func (s *Server) applyOps(w http.ResponseWriter, r *http.Request, a *actor) {
 	}
 	app := linkApp(ctx)
 	voter := a.voter()
+	who := a.name
+	if a.b.Anonymous {
+		who = someone
+	}
 	private := a.b.PrivateOf().On
 	hideAs := ""
 	if private {
@@ -550,7 +558,7 @@ func (s *Server) applyOps(w http.ResponseWriter, r *http.Request, a *actor) {
 				puts++
 			}
 			op.Obj.Source = app
-			op.Obj.UpdatedBy = a.name
+			op.Obj.UpdatedBy = who
 			if (exists && cur.HiddenBy != "") || (!exists && hideAs != "") {
 				hidden[op.ID] = true
 				op.Obj.Hidden = true
@@ -570,10 +578,13 @@ func (s *Server) applyOps(w http.ResponseWriter, r *http.Request, a *actor) {
 			return
 		}
 	}
-	v, err := s.store.ApplyOps(ctx, a.b.ID, in.Ops, a.uid(), a.name, hideAs)
+	v, err := s.store.ApplyOps(ctx, a.b.ID, in.Ops, a.uid(), who, hideAs)
 	if err != nil {
 		s.fail(w, err, "save changes")
 		return
+	}
+	if a.b.Anonymous {
+		in.Ops = anonOps(in.Ops)
 	}
 	var open, mine []store.Op
 	for _, op := range in.Ops {
@@ -584,7 +595,7 @@ func (s *Server) applyOps(w http.ResponseWriter, r *http.Request, a *actor) {
 		}
 	}
 	if len(open) > 0 {
-		s.hub.send(a.b.ID, in.Client, map[string]any{"type": "ops", "client": in.Client, "by": a.name, "ops": open, "version": v})
+		s.hub.send(a.b.ID, in.Client, map[string]any{"type": "ops", "client": in.Client, "by": who, "ops": open, "version": v})
 	}
 	if len(mine) > 0 {
 		s.hub.sendVoter(a.b.ID, voter, in.Client, map[string]any{"type": "ops", "client": in.Client, "by": a.name, "ops": mine, "version": v})

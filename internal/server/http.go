@@ -49,6 +49,7 @@ func (s *Server) Router() http.Handler {
 			r.Post("/public/b/{key}/cursor", s.handlePublicCursor)
 			r.Get("/public/b/{key}/votes", s.handlePublicVotes)
 			r.Post("/public/b/{key}/vote", s.handlePublicVote)
+			r.Post("/public/b/{key}/poker/pick", s.handlePublicPokerPick)
 			r.Get("/public/b/{key}/uploads/{id}", s.handlePublicUpload)
 			r.Post("/public/b/{key}/uploads", s.handlePublicNewUpload)
 			r.Get("/public/b/{key}/comments", s.handlePublicComments)
@@ -136,6 +137,15 @@ func (s *Server) Router() http.Handler {
 				r.Get("/unfurl", s.handleUnfurl)
 				r.Post("/boards/{id}/cards/{oid}/task", s.handleCardTask)
 				r.Post("/boards/{id}/cards/pull", s.handleCardsPull)
+				r.Get("/boards/{id}/cards/teams", s.handleProjectTeams)
+				r.Post("/boards/{id}/cards/{oid}/issue", s.handleCardIssue)
+				r.Post("/boards/{id}/cards/{oid}/event", s.handleCardEvent)
+				r.Put("/boards/{id}/anonymous", s.handleAnonymous)
+				r.Post("/boards/{id}/poker", s.handlePokerStart)
+				r.Post("/boards/{id}/poker/pick", s.handlePokerPick)
+				r.Put("/boards/{id}/poker/reveal", s.handlePokerReveal)
+				r.Delete("/boards/{id}/poker", s.handlePokerStop)
+				r.Post("/boards/{id}/uploads/adopt", s.handleAdoptUploads)
 
 				// the other Pocket apps
 				r.Get("/apps", s.handleApps)
