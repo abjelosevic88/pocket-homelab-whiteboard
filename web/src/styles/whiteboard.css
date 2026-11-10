@@ -300,7 +300,7 @@ span.chip { cursor: default; }
 .wb-ghost { position: absolute; left: 0; top: 0; z-index: 2147483000; opacity: .5; pointer-events: none; }
 .wb-ghost * { pointer-events: none !important; }
 /* the adding pointer also shows over things already on the board (a click there still adds) */
-.wb-vp.is-cross .wb-world *:not(.ob-edit):not(.ob-edit *) { cursor: inherit; }
+.wb-vp.is-cross .wb-world *:not(.ob-edit):not(.ob-edit *), .wb-vp.is-erase .wb-world * { cursor: inherit; }
 .wb-vp.is-erase { cursor: cell; }
 .wb-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }
 

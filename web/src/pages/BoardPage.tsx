@@ -1777,6 +1777,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
   // the pointer shows what a click adds
   const addCursor = useMemo(() => {
     // tools with a see-through preview keep the plain cross; the badge is for line, pen and comment
+    if (cursorClass === 'is-erase') return toolCursor({ kind: 'erase' })
     if (cursorClass !== 'is-cross' || ghost) return undefined
     if (tool === 'sticky') { const s = paper(stickyColor); return toolCursor({ kind: 'note', bg: s.bg, ink: s.ink }) }
     if (tool === 'sticker') return toolCursor({ kind: 'emoji', emoji: sticker })

@@ -9,9 +9,17 @@ export type ToolLook =
   | { kind: 'icon'; icon: string; color?: string }
   | { kind: 'note'; bg: string; ink: string }
   | { kind: 'emoji'; emoji: string }
+  | { kind: 'erase' }
 
 /** A CSS cursor value; the hot spot is the middle of the cross. */
 export function toolCursor(look: ToolLook): string {
+  if (look.kind === 'erase') {
+    // no cross: a ring the size of what it rubs out, the eraser beside it
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">` +
+      `<circle cx="9" cy="9" r="7" fill="rgba(255,255,255,.55)" stroke="#fff" stroke-width="3"/><circle cx="9" cy="9" r="7" fill="none" stroke="#1d2024" stroke-width="1.4"/>` +
+      `<g transform="translate(15 15) scale(.9167)"><path d="${iconPath('eraser')}" fill="none" stroke="#fff" stroke-width="4.4" stroke-linecap="round" stroke-linejoin="round"/><path d="${iconPath('eraser')}" fill="#fff" stroke="#1d2024" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></g></svg>`
+    return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 9 9, default`
+  }
   const cross = `<path d="M9 2v14M2 9h14" stroke="#fff" stroke-width="4" stroke-linecap="round"/><path d="M9 2v14M2 9h14" stroke="#1d2024" stroke-width="1.6" stroke-linecap="round"/>`
   let badge: string
   if (look.kind === 'note') {
