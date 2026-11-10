@@ -1,0 +1,3 @@
+# Reverse proxy
+
+Set `BASE_URL` to the public address and `SECURE_COOKIES=true` behind HTTPS. See [deploy/reverse-proxy/Caddyfile](../deploy/reverse-proxy/Caddyfile). A picture, recording or file comes in one request of up to 25 MB: if your proxy limits request bodies, allow at least 32 MB. `/api/*` is reachable for Homepage widgets, Shortcuts and linked apps; they send their own bearer token. Two kinds of page need no account: a recipient's link (`/o/<key>`, with `/api/v1/public/o/*`) and the "add something" link (`/give/<key>`, `/api/v1/public/give/*`, ten a hour per address — set `TRUST_PROXY=true` so that is the visitor's address). Put the app on a public address only if people outside your network should reach those links.

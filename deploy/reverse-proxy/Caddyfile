@@ -1,0 +1,9 @@
+# Pocket Whiteboard behind Caddy.
+forum.example.com {
+	request_body {
+		max_size 16MB
+	}
+	reverse_proxy pocket-whiteboard:8080 {
+		flush_interval -1
+	}
+}

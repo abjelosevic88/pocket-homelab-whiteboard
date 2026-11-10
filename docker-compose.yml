@@ -1,0 +1,23 @@
+# Pocket Whiteboard (Go + SQLite) — a whiteboard without edges: sticky notes, shapes, arrows, frames, drawings, live together — one Go binary, one SQLite file
+services:
+  pocket-whiteboard:
+    image: ghcr.io/abjelosevic88/pocket-homelab-whiteboard:latest
+    container_name: pocket-whiteboard
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      TZ: ${TZ:-Europe/Berlin}
+      BASE_URL: ${BASE_URL:-http://localhost:8080}
+      # SECURE_COOKIES: "true"          # behind HTTPS
+      # First admin (only used while the database has no users):
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      NOTIFY_URL: ${NOTIFY_URL:-}
+      # Pocket Core: one sign-in, Pocket AI, and app links to Pocket Calendar, Contacts, Family, Email, Chat, Photos, Notes, Files, Voice, Tasks, Alerts, Blog, Weather, Bookshelf, Music, Movement, Health and Wealth.
+      # CORE_URL: http://pocket-core:8080
+      # CORE_REGISTRATION_KEY: ${CORE_REGISTRATION_KEY}
+    volumes:
+      - ./data:/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
