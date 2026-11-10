@@ -181,6 +181,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
   const [pen, setPen] = useState({ color: '#1d2024', width: 4, highlight: false })
   const [stickyColor, setStickyColor] = useState(settings?.sticky_color || 'light-yellow')
   const [flyout, setFlyout] = useState<Tool | 'more' | null>(null)
+  const toolsRef = useRef<HTMLElement>(null)
 
   const [marquee, setMarquee] = useState<Rect | null>(null)
   const [guides, setGuides] = useState<{ x?: number; y?: number }[]>([])
@@ -218,6 +219,19 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
   const [spaceDown, setSpaceDown] = useState(false)
   const vpRef = useRef<HTMLDivElement>(null)
   const [vpSize, setVpSize] = useState({ w: 1200, h: 800 })
+  // a tool's pop-out opens beside its own button (or beside More when the tool sits in there), kept inside the window
+  useLayoutEffect(() => {
+    const nav = toolsRef.current
+    const fly = nav?.querySelector<HTMLElement>(':scope > .wb-fly')
+    if (!nav || !fly || !flyout) return
+    const label = ({ sticky: 'Sticky note', shape: 'Shape', line: 'Line or arrow', pen: 'Pen', sticker: 'Sticker', more: 'More tools' } as Record<string, string>)[flyout]
+    const btn = nav.querySelector<HTMLElement>(`:scope > button[aria-label="${label}"]`) || nav.querySelector<HTMLElement>(':scope > button[aria-label="More tools"]')
+    const want = btn ? btn.offsetTop + btn.offsetHeight / 2 - 26 : 40
+    const box = nav.getBoundingClientRect()
+    const bottom = (nav.offsetParent as HTMLElement | null)?.getBoundingClientRect().bottom ?? window.innerHeight
+    const most = bottom - 12 - box.top - fly.offsetHeight
+    fly.style.top = `${Math.max(Math.min(0, most), Math.min(want, most))}px`
+  }, [flyout, vpSize, shapeTab])
 
   // ---- talking to the server
   const pending = useRef(new Map<string, Op>())
@@ -1921,7 +1935,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
 
       {/* ---- tools */}
       {present === null && (
-        <nav className="wb-tools" aria-label="Tools" onPointerDown={e => e.stopPropagation()}>
+        <nav ref={toolsRef} className="wb-tools" aria-label="Tools" onPointerDown={e => e.stopPropagation()}>
           <ToolBtn icon="cursor" label="Select" k="V" on={tool === 'select'} onClick={() => setTool('select')} />
           <ToolBtn icon="hand" label="Move the board" k="H" on={tool === 'hand'} onClick={() => setTool('hand')} />
           {(canEdit || !guest) && <ToolBtn icon="comment" label="Comment" k="C" on={tool === 'comment'} onClick={() => setTool(tool === 'comment' ? 'select' : 'comment')} />}
@@ -1952,7 +1966,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
               return <>
                 {shown.map(i => i.el)}
                 <ToolBtn icon="more" label="More tools" k="…" on={flyout === 'more' || restOn} onClick={() => setFlyout(flyout === 'more' ? null : 'more')} more />
-                {flyout === 'more' && <div className="wb-fly wb-fly-more" style={{ top: Math.max(0, (shown.length + 3) * step - 120) }} onClick={e => { if ((e.target as HTMLElement).closest('.wb-tool')) setFlyout(f => (f === 'more' ? null : f)) }}>{rest.map(i => i.el)}</div>}
+                {flyout === 'more' && <div className="wb-fly wb-fly-more" style={{ gridTemplateColumns: `repeat(${Math.min(4, rest.length)}, 40px)` }} onClick={e => { if ((e.target as HTMLElement).closest('.wb-tool')) setFlyout(f => (f === 'more' ? null : f)) }}>{rest.map(i => i.el)}</div>}
               </>
             })()}
             <span className="wb-tools-sep" />
