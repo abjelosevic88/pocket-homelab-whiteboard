@@ -63,6 +63,7 @@ func (s *Server) Router() http.Handler {
 			r.Use(s.requireAuth)
 			r.Post("/uploads", s.handleUpload)
 			r.Post("/import", s.handleImport)
+			r.Post("/import/miro", s.handleImportMiro)
 			r.Get("/export.json", s.handleExportJSON)
 			r.Post("/boards/{id}/ai/group", s.handleAIGroup)
 			r.Post("/boards/{id}/ai/summary", s.handleAISummary)

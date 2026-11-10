@@ -10,6 +10,7 @@ import { Icon } from '../components/icons'
 import { Confirm, Empty, Loading, type MenuItem, MenuButton, Segmented, errMsg, useToast } from '../components/ui'
 import { Select } from '../components/Select'
 import { useCrumb } from '../components/Layout'
+import { MiroImport } from '../components/MiroImport'
 
 type Show = 'all' | 'starred' | 'mine' | 'shared'
 
@@ -54,6 +55,7 @@ export default function Home() {
   const [sort, setSort] = useState(() => localStorage.getItem('pwb-sort') || 'opened')
   const [del, setDel] = useState<BoardRow | null>(null)
   const [making, setMaking] = useState('')
+  const [miro, setMiro] = useState(false)
   useCrumb(undefined)
   const load = useCallback(() => { api.get<{ boards: BoardRow[] }>(`${V1}/boards`).then(r => setBoards(r.boards)).catch(e => { toast(errMsg(e), 'err'); setBoards([]) }) }, [toast])
   useEffect(() => { load() }, [load])
@@ -127,6 +129,7 @@ export default function Home() {
           <p className="muted">{boards ? `${boards.length} ${boards.length === 1 ? 'board' : 'boards'}` : ' '}</p>
         </div>
         {curFolder && <MenuButton label="Folder" className="btn" align="right" items={[{ label: 'Rename', icon: 'edit', onSelect: renameFolder }, { label: 'Delete the folder', icon: 'trash', danger: true, onSelect: deleteFolder }]}><Icon name="more" size={15} /></MenuButton>}
+        <button type="button" className="btn" onClick={() => setMiro(true)}><Icon name="upload" size={15} />Import from Miro</button>
         <button type="button" className="btn primary" onClick={() => create('blank')} disabled={!!making}><Icon name="plus" size={15} />New board</button>
       </div>
 
@@ -215,6 +218,7 @@ export default function Home() {
       {del && <Confirm title={del.role === 'owner' ? 'Delete this board?' : 'Leave this board?'} confirmLabel={del.role === 'owner' ? 'Delete' : 'Leave'}
         message={del.role === 'owner' ? <>“{del.title}” and everything on it goes, for everyone on it.</> : <>You will no longer see “{del.title}”. {del.owner_name} can put you back on it.</>}
         onCancel={() => setDel(null)} onConfirm={() => remove(del)} />}
+      {miro && <MiroImport onClose={() => setMiro(false)} />}
     </div>
   )
 }
