@@ -1341,8 +1341,14 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
           {flyout === 'pen' && (
             <div className="wb-fly">
               <div className="wb-swatches">{INKS.map(c => <button key={c} type="button" className={`wb-sw round ${c === pen.color ? 'on' : ''}`} style={{ background: c }} aria-label={c} onClick={() => setPen(p => ({ ...p, color: c }))} />)}</div>
-              <Segmented size="sm" value={pen.width} onChange={w => setPen(p => ({ ...p, width: w }))} options={[{ value: 2, label: 'Thin' }, { value: 4, label: 'Medium' }, { value: 8, label: 'Thick' }]} />
-              <Segmented size="sm" value={pen.highlight ? 'hl' : 'pen'} onChange={v => setPen(p => ({ ...p, highlight: v === 'hl' }))} options={[{ value: 'pen', label: 'Pen' }, { value: 'hl', label: 'Highlighter' }]} />
+              <div className="wb-widths" role="radiogroup" aria-label="Thickness">
+                {([[2, 'Thin'], [4, 'Medium'], [8, 'Thick']] as const).map(([w, n]) => (
+                  <button key={w} type="button" role="radio" aria-checked={pen.width === w} className={`wb-width ${pen.width === w ? 'on' : ''}`} title={n} aria-label={n} onClick={() => setPen(p => ({ ...p, width: w }))}>
+                    <i style={{ width: w * 2 + 2, height: w * 2 + 2, background: pen.color === '#ffffff' ? '#c8ccd2' : pen.color, opacity: pen.highlight ? 0.45 : 1 }} />
+                  </button>
+                ))}
+              </div>
+              <Segmented size="sm" className="wb-full" value={pen.highlight ? 'hl' : 'pen'} onChange={v => setPen(p => ({ ...p, highlight: v === 'hl' }))} options={[{ value: 'pen', label: 'Pen' }, { value: 'hl', label: 'Highlighter' }]} />
             </div>
           )}
         </nav>

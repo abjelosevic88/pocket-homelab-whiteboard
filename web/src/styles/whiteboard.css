@@ -451,3 +451,12 @@ span.chip { cursor: default; }
   .wb-count-notes { display: none; }
   .wb-people-row .wb-person + .wb-person { display: none; }
 }
+
+/* pen thickness: dots of the real size, and a full-width pen/highlighter switch */
+.wb-widths { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.wb-width { height: 36px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); cursor: pointer; padding: 0; }
+.wb-width:hover { background: var(--hover); }
+.wb-width.on { border-color: var(--wb-sel); box-shadow: 0 0 0 1px var(--wb-sel); }
+.wb-width i { display: block; border-radius: 50%; }
+.wb-fly .segmented.wb-full { display: flex; width: 100%; }
+.wb-fly .segmented.wb-full button { flex: 1; min-width: 0; padding-left: 4px; padding-right: 4px; }
