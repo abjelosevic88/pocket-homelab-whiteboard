@@ -296,6 +296,9 @@ span.chip { cursor: default; }
 .wb-vp.is-hand { cursor: grab; }
 .wb-vp.is-hand:active { cursor: grabbing; }
 .wb-vp.is-cross { cursor: crosshair; }
+/* what a click adds, following the pointer */
+.wb-ghost { position: absolute; left: 0; top: 0; z-index: 2147483000; opacity: .5; pointer-events: none; }
+.wb-ghost * { pointer-events: none !important; }
 /* the adding pointer also shows over things already on the board (a click there still adds) */
 .wb-vp.is-cross .wb-world *:not(.ob-edit):not(.ob-edit *) { cursor: inherit; }
 .wb-vp.is-erase { cursor: cell; }

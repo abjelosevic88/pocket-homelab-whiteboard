@@ -677,6 +677,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
       if (eo?.kind === 'embed') setEditing(null)
       else (document.activeElement as HTMLElement | null)?.blur?.()
     }
+    moveGhost(null)
     const t = toolRef.current
     const hit = hitAt(e)
     downHit.current = hit.id
@@ -923,6 +924,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
     sendCursorSoon()
     if (pointers.current.has(e.pointerId)) pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
     const d = dragRef.current
+    moveGhost(!d && e.pointerType !== 'touch' && !spaceDown && !(e.target as HTMLElement).closest('.wb-ctx, .wb-tools, .wb-zoom, .wb-panel, .wb-vote-bar, .wb-top, .wb-minimap, .wb-ctx-menu, .modal') ? p : null)
     if (!d) {
       if (toolRef.current === 'line') setHoverTarget(targetAt(p))
       if (toolRef.current === 'select' && canEdit && e.pointerType !== 'touch') {
@@ -1748,6 +1750,30 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
   const gridStep = cam.z < 0.35 ? 120 : cam.z < 0.7 ? 40 : 20
   const vpStyle: React.CSSProperties = bg === 'plain' ? {} : { backgroundSize: `${gridStep * cam.z}px ${gridStep * cam.z}px`, backgroundPosition: `${cam.x}px ${cam.y}px` }
   const cursorClass = spaceDown || tool === 'hand' ? 'is-hand' : tool === 'select' ? '' : tool === 'eraser' ? 'is-erase' : 'is-cross'
+  // a see-through copy of what a click adds follows the pointer (the same size and place a click gives)
+  const ghostRef = useRef<HTMLDivElement>(null)
+  const ghost = useMemo((): Obj | null => {
+    const g = (kind: Obj['kind'], x: number, y: number, w: number, h: number, data: ObjData): Obj => ({ id: '__ghost', kind, x, y, w, h, z: 0, data })
+    switch (tool) {
+      case 'sticky': return g('sticky', -STICKY_SIZE / 2, -STICKY_SIZE / 2, STICKY_SIZE, STICKY_SIZE, { text: '', color: stickyColor })
+      case 'text': return g('text', 0, -18, 320, 36, { text: 'Text', size: 24 })
+      case 'shape': return g('shape', -100, -65, 200, 130, { shape: shapeForm, fill: 'white', text: '' })
+      case 'frame': return g('frame', -400, -280, 800, 560, { title: 'Frame', fill: 'gray' })
+      case 'sticker': return g('sticker', -60, -60, 120, 120, { emoji: sticker })
+      case 'icon': return g('icon', -48, -48, 96, 96, { icon: iconPick, color: '#1d2024' })
+      case 'mind': return g('shape', -120, -40, 240, 80, { shape: 'round', text: '', fill: MIND_FILLS[0], size: 24, bold: true })
+      case 'card': return g('card', -140, -70, 280, 140, { text: '', color: 'blue' })
+    }
+    return null
+  }, [tool, stickyColor, shapeForm, sticker, iconPick])
+  const moveGhost = (p: Pt | null) => {
+    const el = ghostRef.current
+    if (!el) return
+    if (!p) { el.style.display = 'none'; return }
+    el.style.display = ''
+    el.style.transform = `translate(${snapV(p.x)}px, ${snapV(p.y)}px)`
+  }
+  useEffect(() => { if (!ghost) moveGhost(null) }, [ghost])
   // the pointer shows what a click adds
   const addCursor = useMemo(() => {
     if (cursorClass !== 'is-cross') return undefined
@@ -1857,7 +1883,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
       {/* ---- the canvas */}
       <div ref={vpRef} className={`wb-vp bg-${bg} ${cursorClass}`} style={addCursor ? { ...vpStyle, cursor: addCursor } : vpStyle}
         onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={e => { pointers.current.delete(e.pointerId); finishDrag(true) }}
-        onPointerLeave={() => { if (!dragRef.current) sendCursor(true) }}
+        onPointerLeave={() => { moveGhost(null); if (!dragRef.current) sendCursor(true) }}
         onContextMenu={e => { e.preventDefault(); if (!e.shiftKey) openMenuAt(e.clientX, e.clientY, e.target) }}
         onDragOver={e => { if (canEdit && e.dataTransfer.types.includes('Files')) e.preventDefault() }}
         onDrop={e => { if (!canEdit) return; e.preventDefault(); const p = toWorld(e.clientX, e.clientY); const files = [...e.dataTransfer.files]; if (!files.length) { const u = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain'); if (/^https?:\/\//.test(u)) createEmbed(u.split('\n')[0], p); return } files.forEach((f, i) => addFile(f, { x: p.x + i * 40, y: p.y + i * 40 })) }}>
@@ -1869,6 +1895,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
                 imgSrc={o.kind === 'image' ? conn.imgSrc(o) : undefined} remote={remoteSel.get(o.id)} showAuthor={showAuthor} />
             )
           })}
+          {ghost && canEdit && <div ref={ghostRef} className="wb-ghost" style={{ display: 'none' }} aria-hidden><ObjectView o={ghost} editing={false} showAuthor={false} /></div>}
           {/* dots and counts sit above everything */}
           {(showCounts || votes.open) && sorted.map(o => {
             const n = showCounts ? votes.counts[o.id] : undefined, m = votes.open ? votes.mine[o.id] : undefined
