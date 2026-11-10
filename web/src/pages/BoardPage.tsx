@@ -20,7 +20,7 @@ import { HistoryPanel } from '../components/board/History'
 import { AIPanel, ChatPicker, Countdown, FramesPanel, SharePanel, TimerPanel, VotePanel, chime } from '../components/board/Panels'
 import { Icon } from '../components/icons'
 import { AskButton } from '../components/AskButton'
-import { Avatar, Confirm, Loading, type MenuItem, MenuButton, Modal, Segmented, errMsg, useIsMobile, useToast } from '../components/ui'
+import { Avatar, Confirm, ContextMenu, Loading, type MenuItem, MenuButton, Modal, Segmented, copyText, errMsg, useIsMobile, useToast } from '../components/ui'
 
 type Tool = 'select' | 'hand' | 'sticky' | 'text' | 'shape' | 'line' | 'pen' | 'eraser' | 'frame' | 'comment' | 'sticker'
 interface Cam { x: number; y: number; z: number }
@@ -201,6 +201,8 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
   const followRef = useRef<string | null>(null)
   followRef.current = following
   const [sticker, setSticker] = useState('⭐')
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; p: Pt; on: string | null } | null>(null)
+  const pressT = useRef(0)
   const [present, setPresent] = useState<number | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -648,6 +650,17 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
     const t = toolRef.current
     const hit = hitAt(e)
     const touch = e.pointerType === 'touch'
+    setCtxMenu(null)
+    window.clearTimeout(pressT.current)
+    if (touch) {
+      const sx = e.clientX, sy = e.clientY, target = e.target
+      pressT.current = window.setTimeout(() => {
+        const d = dragRef.current
+        if (pointers.current.size !== 1 || (d && 'moved' in d && d.moved)) return
+        finishDrag(true)
+        openMenuAt(sx, sy, target)
+      }, 550)
+    }
     if (e.button === 1 || t === 'hand' || spaceDown) {
       dragRef.current = { mode: 'pan', sx: e.clientX, sy: e.clientY, cam: camRef.current, moved: false }
       return
@@ -767,6 +780,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
   }
 
   const onPointerMove = (e: React.PointerEvent) => {
+    if (pressT.current && e.pointerType === 'touch') { const d = dragRef.current; if (d && 'sx' in d && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) > 8) { window.clearTimeout(pressT.current); pressT.current = 0 } }
     const p = toWorld(e.clientX, e.clientY)
     lastPointer.current = p
     sendCursorSoon()
@@ -973,6 +987,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
   }
 
   const onPointerUp = (e: React.PointerEvent) => {
+    window.clearTimeout(pressT.current); pressT.current = 0
     pointers.current.delete(e.pointerId)
     const d = dragRef.current
     if (d?.mode === 'pinch') { if (pointers.current.size < 2) dragRef.current = null; return }
@@ -1338,6 +1353,100 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
       toast(r.text || 'Done', 'ok', r.url ? { label: 'Open', run: () => window.open(r.url, '_blank', 'noopener') } : undefined)
     } catch (e) { toast(errMsg(e), 'err') }
   }
+  /** The right-click menu: for the thing under the pointer (picking it first), or for the board there. */
+  function openMenuAt(x: number, y: number, target: EventTarget | null) {
+    if (present !== null) return
+    const h = hitAt({ target })
+    const p = toWorld(x, y)
+    let on: string | null = h.id && objsRef.current.has(h.id) ? h.id : null
+    if (on && !selRef.current.has(on)) setSel(withGroups([on]))
+    if (!on) on = null
+    setEditing(null)
+    setCtxMenu({ x, y, p, on })
+  }
+  const copySel = async (cut = false) => {
+    const list = selected()
+    if (!list.length) return
+    clip.current = list
+    await copyText('pocket-whiteboard:' + JSON.stringify(list.map(slim)))
+    if (cut && canEdit) del()
+    toast(cut ? 'Cut' : `Copied ${list.length === 1 ? '' : list.length + ' things'}`.trim())
+  }
+  const pasteAt = async (p: Pt) => {
+    let text = ''
+    try { text = await navigator.clipboard.readText() } catch { /* no permission: use what was copied here */ }
+    if (text.startsWith('pocket-whiteboard:')) { try { pasteObjs(JSON.parse(text.slice(18)) as Obj[], p); return } catch { /* not ours */ } }
+    if (text.trim()) { pasteText(text, p); return }
+    if (clip.current.length) pasteObjs(clip.current, p)
+    else toast('Nothing copied yet')
+  }
+  const menuItems = (m: { p: Pt; on: string | null }): MenuItem[] => {
+    const list = m.on ? selected() : []
+    if (!list.length) {
+      // the board at the pointer
+      return [
+        ...(canEdit ? [
+          { label: 'Paste here', icon: 'copy', hint: '⌘V', onSelect: () => pasteAt(m.p) },
+          'sep' as const,
+          { label: 'Sticky note here', icon: 'sticky', hint: 'N', onSelect: () => addSticky({ x: snapV(m.p.x), y: snapV(m.p.y) }) },
+          { label: 'Text here', icon: 'text', hint: 'T', onSelect: () => { const o = make('text', { x: m.p.x, y: m.p.y - 18, w: 320, h: 36 }, { text: '', size: 24 }); commit([o]); setSel(new Set([o.id])); setEditing(o.id) } },
+          { label: 'Sticker here', icon: 'sticker', submenu: STICKERS.slice(0, 16).map(e => ({ label: <span className="wb-react-item">{e}</span>, onSelect: () => { const o = make('sticker', { x: m.p.x - 60, y: m.p.y - 60, w: 120, h: 120 }, { emoji: e }); commit([o]); setSel(new Set([o.id])) } })) },
+        ] : []),
+        ...(!guest || canEdit ? [{ label: 'Comment here', icon: 'comment', hint: 'C', onSelect: () => { setOpenThread(null); setNewThread({ object_id: '', x: Math.round(m.p.x), y: Math.round(m.p.y) }) } }] : []),
+        'sep',
+        { label: 'Pick everything', icon: 'grid', hint: '⌘A', onSelect: () => setSel(new Set(objsRef.current.keys())) },
+        { label: 'Fit everything', icon: 'maximize', hint: '⇧1', onSelect: () => fitAll() },
+        { label: 'Find on this board', icon: 'search', hint: '⌘F', onSelect: () => setFind({ q: '', i: 0 }) },
+        ...(!guest ? [{ label: 'Bring everyone here', icon: 'magnet', onSelect: summon }] : []),
+        ...(canEdit && !guest ? [{ label: 'Background', icon: 'grid-sort', submenu: (['dots', 'grid', 'plain'] as const).map(b => ({ label: b === 'dots' ? 'Dots' : b === 'grid' ? 'Grid' : 'Plain', checked: board.background === b, onSelect: async () => { try { await call(conn, 'PUT', '', { background: b }); setBoard(x => ({ ...x, background: b })) } catch (e) { toast(errMsg(e), 'err') } } })) }] : []),
+      ]
+    }
+    const one = list.length === 1 ? list[0] : null
+    const locked = list.every(o => o.data.locked)
+    const coloured = list.some(o => ['sticky', 'shape', 'frame'].includes(o.kind))
+    const grouped = list.length > 1 && list.every(o => o.data.group && o.data.group === list[0].data.group)
+    const textish = list.filter(o => ['sticky', 'text', 'shape'].includes(o.kind) && textOf(o))
+    const taggable = list.filter(o => o.kind === 'sticky' || o.kind === 'shape')
+    const reactable = one && !['line', 'frame'].includes(one.kind)
+    const editable = one && ['sticky', 'text', 'shape', 'frame', 'line'].includes(one.kind) && !locked
+    return [
+      { heading: one ? ({ sticky: 'Sticky note', text: 'Text', shape: 'Shape', line: 'Line', frame: 'Frame', pen: 'Drawing', image: 'Picture', sticker: 'Sticker' } as Record<string, string>)[one.kind] + (one.author ? ` · ${one.author}` : '') : `${list.length} things` },
+      ...(canEdit && editable ? [{ label: one!.kind === 'frame' ? 'Rename' : one!.kind === 'line' ? 'Label' : 'Write', icon: 'edit', hint: '↩', onSelect: () => setEditing(one!.id) }] : []),
+      { label: 'Copy', icon: 'copy', hint: '⌘C', onSelect: () => copySel() },
+      ...(canEdit ? [
+        { label: 'Cut', icon: 'scissors', hint: '⌘X', disabled: locked, onSelect: () => copySel(true) },
+        { label: 'Paste here', icon: 'copy', hint: '⌘V', onSelect: () => pasteAt(m.p) },
+        { label: 'Duplicate', icon: 'copy', hint: '⌘D', onSelect: () => duplicate() },
+      ] : []),
+      'sep',
+      ...(canEdit && coloured && !locked ? [{ label: 'Colour', icon: 'palette', submenu: STICKY_KEYS.map(c => ({ label: <span className="wb-menu-colour"><i style={{ background: STICKY[c].bg }} />{STICKY[c].name}</span>, checked: !!one && (one.data.color || one.data.fill) === c, onSelect: () => colourAll(c) })) }] : []),
+      ...(canEdit && one?.kind === 'sticker' && !locked ? [{ label: 'Change the sticker', icon: 'sticker', submenu: STICKERS.map(e => ({ label: <span className="wb-react-item">{e}</span>, checked: one.data.emoji === e, onSelect: () => restyle({ emoji: e }) })) }] : []),
+      ...(reactable ? [{ label: 'React', icon: 'smile', submenu: REACTIONS.map(e => ({ label: <span className="wb-react-item">{e}</span>, checked: (reactions[one!.id] || []).some(r => r.emoji === e && r.voters.includes(me.voter)), onSelect: () => react(one!.id, e) })) }] : []),
+      ...(canEdit && taggable.length && !locked ? [{ label: 'Tags', icon: 'tag', submenu: [
+        ...allTags.map(t => { const all = taggable.every(o => o.data.tags?.includes(t)); return { label: t, checked: all, onSelect: () => toggleTag(t, !all) } }),
+        ...(allTags.length ? ['sep' as const] : []),
+        { label: 'New tag…', icon: 'plus', onSelect: () => { const t = window.prompt('New tag')?.trim().replace(/^#/, '').slice(0, 30); if (t) toggleTag(t, true) } },
+      ] }] : []),
+      ...(one && (!guest || canEdit) ? [{ label: 'Comment', icon: 'comment', onSelect: () => { setOpenThread(null); setNewThread({ object_id: one.kind === 'line' ? '' : one.id, x: Math.round(one.x + one.w), y: Math.round(one.y) }) } }] : []),
+      'sep',
+      ...(canEdit ? [{ label: 'Arrange', icon: 'layers', submenu: [
+        { label: 'Bring to front', icon: 'bring-front', hint: ']', onSelect: () => order(true) },
+        { label: 'Send to back', icon: 'send-back', hint: '[', onSelect: () => order(false) },
+        ...(list.length > 1 && !grouped ? [{ label: 'Group', icon: 'group', hint: '⌘G', onSelect: group }] : []),
+        ...(list.some(o => o.data.group) ? [{ label: 'Ungroup', icon: 'ungroup', hint: '⇧⌘G', onSelect: ungroup }] : []),
+        ...(list.length > 1 ? [{ label: 'Arrange in a grid', icon: 'grid', onSelect: () => arrangeGrid(false) }, { label: 'Sort into columns by colour', icon: 'grid-sort', onSelect: () => arrangeGrid(true) }] : []),
+        { label: locked ? 'Unlock' : 'Lock in place', icon: 'lock', onSelect: toggleLock },
+      ] }] : []),
+      { label: 'Zoom to it', icon: 'zoom-in', hint: '⇧2', onSelect: () => { const r = union(list.map(o => rectOf(o, objsRef.current))); if (r) animateTo(camFor(r, 120, 2)) } },
+      { label: 'More', icon: 'more', submenu: [
+        ...(!guest && one ? [{ label: 'Copy a link to it', icon: 'link', onSelect: async () => { if (await copyText(`${window.location.origin}/b/${board.id}?o=${one.id}`)) toast('Link copied') } }] : []),
+        { label: 'Download a picture of it', icon: 'image', onSelect: () => savePicture() },
+        ...(!guest && textish.length ? [{ label: `Make ${textish.length > 1 ? `${textish.length} tasks` : 'a task'} in Pocket Tasks`, icon: 'check-square', disabled: !tasksOK, hint: tasksOK ? undefined : 'off', onSelect: () => toApp('/tasks', { ids: list.map(o => o.id) }) }] : []),
+        ...(!guest ? [{ label: 'Pocket AI on these', icon: 'sparkles', onSelect: () => setPanel('ai') }] : []),
+      ] },
+      ...(canEdit ? ['sep' as const, { label: 'Delete', icon: 'trash', hint: 'Del', danger: true, disabled: locked, onSelect: del }] : []),
+    ]
+  }
   const tasksOK = !guest && appState('tasks', 'tasks:write').ok
   const notesOK = !guest && appState('notes', 'notes:write').ok
   const filesOK = !guest && appState('files', 'files:write').ok
@@ -1438,7 +1547,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
   }
   // the + buttons above a single picked note or shape need room too
   const plusShown = canEdit && selList.length === 1 && ['sticky', 'shape'].includes(selList[0].kind) && !selList[0].data.locked && cam.z > 0.25
-  const ctxPos = selBox && !editing && present === null && !dragRef.current ? barAt(selBox, 160, plusShown ? 40 : 0) : null
+  const ctxPos = selBox && !editing && !ctxMenu && present === null && !dragRef.current ? barAt(selBox, 160, plusShown ? 40 : 0) : null
 
   const H = useRef({ editDone })
   H.current = { editDone }
@@ -1521,7 +1630,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
       <div ref={vpRef} className={`wb-vp bg-${bg} ${cursorClass}`} style={vpStyle}
         onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={e => { pointers.current.delete(e.pointerId); finishDrag(true) }}
         onPointerLeave={() => { if (!dragRef.current) sendCursor(true) }}
-        onContextMenu={e => e.preventDefault()}
+        onContextMenu={e => { e.preventDefault(); if (!e.shiftKey) openMenuAt(e.clientX, e.clientY, e.target) }}
         onDragOver={e => { if (canEdit && e.dataTransfer.types.includes('Files')) e.preventDefault() }}
         onDrop={e => { if (!canEdit) return; e.preventDefault(); const p = toWorld(e.clientX, e.clientY); [...e.dataTransfer.files].filter(f => f.type.startsWith('image/')).forEach((f, i) => addImage(f, { x: p.x + i * 40, y: p.y + i * 40 })) }}>
         <div className="wb-world" style={{ transform: `translate(${cam.x}px, ${cam.y}px) scale(${cam.z})` }}>
@@ -1724,6 +1833,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
         return <FormatBar pos={pos} size={o.data.size || 0} onSize={v => { const cur = objsRef.current.get(o.id); if (cur) commit([withData(cur, { size: v || undefined })]) }} />
       })()}
       <FloatLayer floats={floats} />
+      {ctxMenu && <ContextMenu at={{ x: ctxMenu.x, y: ctxMenu.y }} items={menuItems(ctxMenu)} width={260} onClose={() => setCtxMenu(null)} />}
 
       {/* ---- panels */}
       {panel === 'share' && !guest && <SharePanel board={board} members={members} setMembers={setMembers} shareURL={shareURL} setShareURL={setShareURL} onBoard={b => setBoard(x => ({ ...x, ...b }))} onClose={() => setPanel(null)}
