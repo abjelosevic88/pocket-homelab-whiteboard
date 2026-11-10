@@ -1413,10 +1413,14 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
   const h = 10 / cam.z
 
   // the selection bar sits above what is picked, in screen space
-  const ctxPos = selBox && !editing && present === null && !dragRef.current ? {
-    left: clamp(cam.x + (selBox.x + selBox.w / 2) * cam.z, 160, vpSize.w - 160),
-    top: cam.y + selBox.y * cam.z - 58 < 64 ? Math.min(vpSize.h - 60, cam.y + (selBox.y + selBox.h) * cam.z + 16) : cam.y + selBox.y * cam.z - 58,
-  } : null
+  // floating bars sit just above what they are for (below it when there is no room); the board
+  // area starts under the top bar, so its offset is added
+  const vpTop = vpRef.current?.offsetTop ?? 52
+  const barAt = (r: Rect, half = 160) => {
+    const above = cam.y + r.y * cam.z - 50
+    return { left: clamp(cam.x + (r.x + r.w / 2) * cam.z, half, vpSize.w - half), top: vpTop + (above < 8 ? Math.min(vpSize.h - 50, cam.y + (r.y + r.h) * cam.z + 10) : above) }
+  }
+  const ctxPos = selBox && !editing && present === null && !dragRef.current ? barAt(selBox) : null
 
   const H = useRef({ editDone })
   H.current = { editDone }
@@ -1687,19 +1691,18 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
         const t = threads.find(x => x.root.id === openThread)
         if (!t) return null
         const at = pinAt(t, objs)
-        const pos = { left: clamp(cam.x + at.x * cam.z + 20, 8, vpSize.w - 330), top: clamp(cam.y + at.y * cam.z + 40, 60, Math.max(60, vpSize.h - 380)) }
+        const pos = { left: clamp(cam.x + at.x * cam.z + 20, 8, vpSize.w - 330), top: vpTop + clamp(cam.y + at.y * cam.z + 10, 8, Math.max(8, vpSize.h - 430)) }
         return <ThreadCard thread={t} pos={pos} people={mentionPeople} req={req} myVoter={me.voter} canResolve={canEdit || t.root.voter === me.voter} isOwner={board.role === 'owner'} guest={guest}
           onClose={() => setOpenThread(null)} onChanged={loadComments} />
       })()}
       {newThread && present === null && (
-        <NewThread at={newThread} people={mentionPeople} req={req} pos={{ left: clamp(cam.x + newThread.x * cam.z + 20, 8, vpSize.w - 330), top: clamp(cam.y + newThread.y * cam.z + 40, 60, Math.max(60, vpSize.h - 260)) }}
+        <NewThread at={newThread} people={mentionPeople} req={req} pos={{ left: clamp(cam.x + newThread.x * cam.z + 20, 8, vpSize.w - 330), top: vpTop + clamp(cam.y + newThread.y * cam.z + 10, 8, Math.max(8, vpSize.h - 230)) }}
           onClose={() => setNewThread(null)} onCreated={id => { setNewThread(null); loadComments(); setOpenThread(id) }} />
       )}
       {/* ---- formatting while writing */}
       {editing && objs.get(editing) && ['sticky', 'shape', 'text'].includes(objs.get(editing)!.kind) && present === null && (() => {
         const o = objs.get(editing)!
-        const top = cam.y + o.y * cam.z - 56
-        const pos = { left: clamp(cam.x + (o.x + o.w / 2) * cam.z, 190, vpSize.w - 190), top: top < 60 ? Math.min(vpSize.h - 56, cam.y + (o.y + o.h) * cam.z + 14) : top }
+        const pos = barAt(o, 190)
         return <FormatBar pos={pos} size={o.data.size || 0} onSize={v => { const cur = objsRef.current.get(o.id); if (cur) commit([withData(cur, { size: v || undefined })]) }} />
       })()}
       <FloatLayer floats={floats} />
