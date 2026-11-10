@@ -1776,7 +1776,8 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
   useEffect(() => { if (!ghost) moveGhost(null) }, [ghost])
   // the pointer shows what a click adds
   const addCursor = useMemo(() => {
-    if (cursorClass !== 'is-cross') return undefined
+    // tools with a see-through preview keep the plain cross; the badge is for line, pen and comment
+    if (cursorClass !== 'is-cross' || ghost) return undefined
     if (tool === 'sticky') { const s = paper(stickyColor); return toolCursor({ kind: 'note', bg: s.bg, ink: s.ink }) }
     if (tool === 'sticker') return toolCursor({ kind: 'emoji', emoji: sticker })
     if (tool === 'pen') return toolCursor({ kind: 'icon', icon: 'pen', color: pen.color === '#ffffff' ? '#8a919b' : pen.color })
@@ -1785,7 +1786,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
       : tool === 'line' ? (lineCurve === 'straight' ? 'arrow-line' : lineCurve === 'elbow' ? 'elbow' : 'curve')
       : tool
     return toolCursor({ kind: 'icon', icon })
-  }, [cursorClass, tool, stickyColor, sticker, pen, shapeForm, iconPick, lineCurve])
+  }, [cursorClass, ghost, tool, stickyColor, sticker, pen, shapeForm, iconPick, lineCurve])
   const showAuthor = !mobile && cam.z > 0.6
   const h = 10 / cam.z
 
