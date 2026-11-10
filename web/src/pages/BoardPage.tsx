@@ -180,7 +180,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
   const [lineCurve, setLineCurve] = useState<'straight' | 'elbow' | 'curve'>('curve')
   const [pen, setPen] = useState({ color: '#1d2024', width: 4, highlight: false })
   const [stickyColor, setStickyColor] = useState(settings?.sticky_color || 'light-yellow')
-  const [flyout, setFlyout] = useState<Tool | null>(null)
+  const [flyout, setFlyout] = useState<Tool | 'more' | null>(null)
 
   const [marquee, setMarquee] = useState<Rect | null>(null)
   const [guides, setGuides] = useState<{ x?: number; y?: number }[]>([])
@@ -1927,18 +1927,34 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
           {(canEdit || !guest) && <ToolBtn icon="comment" label="Comment" k="C" on={tool === 'comment'} onClick={() => setTool(tool === 'comment' ? 'select' : 'comment')} />}
           {canEdit && <>
             <span className="wb-tools-sep" />
-            <ToolBtn icon="sticky" label="Sticky note" k="N" on={tool === 'sticky'} onClick={() => { setTool('sticky'); setFlyout(flyout === 'sticky' ? null : 'sticky') }} dot={paper(stickyColor).bg} />
-            <ToolBtn icon="text" label="Text" k="T" on={tool === 'text'} onClick={() => setTool('text')} />
-            <ToolBtn icon={SHAPES.find(s => s.form === shapeForm)?.icon || 'square'} label="Shape" k="S" on={tool === 'shape'} onClick={() => { setTool('shape'); setFlyout(flyout === 'shape' ? null : 'shape') }} more />
-            <ToolBtn icon={lineCurve === 'straight' ? 'arrow-line' : lineCurve === 'elbow' ? 'elbow' : 'curve'} label="Line or arrow" k="L" on={tool === 'line'} onClick={() => { setTool('line'); setFlyout(flyout === 'line' ? null : 'line') }} more />
-            <ToolBtn icon="pen" label="Pen" k="P" on={tool === 'pen'} onClick={() => { setTool('pen'); setFlyout(flyout === 'pen' ? null : 'pen') }} more dot={pen.color} />
-            <ToolBtn icon="eraser" label="Eraser (pen lines)" k="E" on={tool === 'eraser'} onClick={() => setTool('eraser')} />
-            <ToolBtn icon="frame" label="Frame" k="F" on={tool === 'frame'} onClick={() => setTool('frame')} />
-            <ToolBtn icon="mind" label="Mind map (Tab: branch, Enter: next to it)" k="M" on={tool === 'mind'} onClick={() => setTool('mind')} />
-            <ToolBtn icon="card" label="Card" k="D" on={tool === 'card'} onClick={() => setTool('card')} />
-            <ToolBtn icon="embed" label="Link, video or file" k="U" on={tool === 'embed'} onClick={() => { setEmbedAt(viewCenter()); setTool('select') }} />
-            <ToolBtn icon="image" label="Picture" k="I" on={false} onClick={pickImage} />
-            <ToolBtn icon="sticker" label="Sticker" k="K" on={tool === 'sticker'} onClick={() => { setTool('sticker'); setFlyout(flyout === 'sticker' ? null : 'sticker') }} more />
+            {(() => {
+              // every tool that fits is shown; the rest sit under "More tools"
+              const items: { t: Tool | 'image'; el: React.ReactNode }[] = [
+                { t: 'sticky', el: <ToolBtn key="sticky" icon="sticky" label="Sticky note" k="N" on={tool === 'sticky'} onClick={() => { setTool('sticky'); setFlyout(flyout === 'sticky' ? null : 'sticky') }} dot={paper(stickyColor).bg} /> },
+                { t: 'text', el: <ToolBtn key="text" icon="text" label="Text" k="T" on={tool === 'text'} onClick={() => setTool('text')} /> },
+                { t: 'shape', el: <ToolBtn key="shape" icon={SHAPES.find(x => x.form === shapeForm)?.icon || 'square'} label="Shape" k="S" on={tool === 'shape' || tool === 'icon'} onClick={() => { setTool('shape'); setFlyout(flyout === 'shape' ? null : 'shape') }} more /> },
+                { t: 'line', el: <ToolBtn key="line" icon={lineCurve === 'straight' ? 'arrow-line' : lineCurve === 'elbow' ? 'elbow' : 'curve'} label="Line or arrow" k="L" on={tool === 'line'} onClick={() => { setTool('line'); setFlyout(flyout === 'line' ? null : 'line') }} more /> },
+                { t: 'pen', el: <ToolBtn key="pen" icon="pen" label="Pen" k="P" on={tool === 'pen'} onClick={() => { setTool('pen'); setFlyout(flyout === 'pen' ? null : 'pen') }} more dot={pen.color} /> },
+                { t: 'frame', el: <ToolBtn key="frame" icon="frame" label="Frame" k="F" on={tool === 'frame'} onClick={() => setTool('frame')} /> },
+                { t: 'mind', el: <ToolBtn key="mind" icon="mind" label="Mind map (Tab: branch, Enter: next to it)" k="M" on={tool === 'mind'} onClick={() => setTool('mind')} /> },
+                { t: 'card', el: <ToolBtn key="card" icon="card" label="Card" k="D" on={tool === 'card'} onClick={() => setTool('card')} /> },
+                { t: 'embed', el: <ToolBtn key="embed" icon="embed" label="Link, video or file" k="U" on={false} onClick={() => { setFlyout(null); setEmbedAt(viewCenter()); setTool('select') }} /> },
+                { t: 'image', el: <ToolBtn key="image" icon="image" label="Picture" k="I" on={false} onClick={() => { setFlyout(null); pickImage() }} /> },
+                { t: 'sticker', el: <ToolBtn key="sticker" icon="sticker" label="Sticker" k="K" on={tool === 'sticker'} onClick={() => { setTool('sticker'); setFlyout(flyout === 'sticker' ? null : 'sticker') }} more /> },
+                { t: 'eraser', el: <ToolBtn key="eraser" icon="eraser" label="Eraser (pen lines)" k="E" on={tool === 'eraser'} onClick={() => setTool('eraser')} /> },
+              ]
+              const step = mobile ? 34 : 42
+              const room = vpTop + vpSize.h - (mobile ? 56 : 64) - 24 - 14
+              const fit = Math.floor(room / step) - 3 - 2 // select, hand, comment; undo, redo
+              if (fit >= items.length) return items.map(i => i.el)
+              const shown = items.slice(0, Math.max(1, fit - 1)), rest = items.slice(Math.max(1, fit - 1))
+              const restOn = rest.some(i => i.t === tool)
+              return <>
+                {shown.map(i => i.el)}
+                <ToolBtn icon="more" label="More tools" k="…" on={flyout === 'more' || restOn} onClick={() => setFlyout(flyout === 'more' ? null : 'more')} more />
+                {flyout === 'more' && <div className="wb-fly wb-fly-more" style={{ top: Math.max(0, (shown.length + 3) * step - 120) }} onClick={e => { if ((e.target as HTMLElement).closest('.wb-tool')) setFlyout(f => (f === 'more' ? null : f)) }}>{rest.map(i => i.el)}</div>}
+              </>
+            })()}
             <span className="wb-tools-sep" />
             <ToolBtn icon="undo" label="Undo" k="⌘Z" on={false} disabled={!undoStack.current.length} onClick={undo} />
             <ToolBtn icon="redo" label="Redo" k="⇧⌘Z" on={false} disabled={!redoStack.current.length} onClick={redo} />

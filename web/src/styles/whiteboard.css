@@ -654,3 +654,4 @@ span.chip { cursor: default; }
 /* the template rows scroll on their own; the page never gets wider than the screen */
 .stack.loose > * { min-width: 0; }
 .tpl-row { max-width: 100%; }
+.wb-fly.wb-fly-more { width: auto; display: grid; grid-template-columns: repeat(4, 40px); gap: 2px; padding: 6px; }
