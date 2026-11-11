@@ -1,7 +1,7 @@
 // A picture of a board (or of what is picked): everything drawn again on
 // a canvas the way the page shows it.
 import type { Obj } from './types'
-import { FONT, OUTLINE_ONLY, actorPath, arrowHead, fitSize, linePath, paper, penPath, rectOf, shapeLines, shapePath, shapeTextBox, stickyBox, tintSolid, union, wrap, type Rect } from './board'
+import { FONT, OUTLINE_ONLY, actorPath, arrowHead, fitSize, linePath, paper, penPath, rectOf, shapeLines, shapePath, shapeTextBox, stickyBox, tableFont, tintSolid, union, wrap, type Rect } from './board'
 import { iconPath } from '../components/icons'
 
 const PAD = 60
@@ -223,7 +223,7 @@ export async function boardCanvas(objs: Obj[], all: Map<string, Obj>, opts: Opts
           for (let ri = 0; ri < cells.length; ri++) {
             c.strokeRect(x, o.y + ri * rh, cw, rh)
             const t = cells[ri][ci] || ''
-            if (t) drawText(c, t, { x: x + 10, y: o.y + ri * rh + 4, w: cw - 20, h: rh - 8 }, d.size || 16, '#1d2024', { bold: !!d.header && ri === 0, align: 'left', middle: true })
+            if (t) drawText(c, t, { x: x + 10, y: o.y + ri * rh + 4, w: cw - 20, h: rh - 8 }, tableFont(o), '#1d2024', { bold: !!d.header && ri === 0, align: 'left', middle: true })
           }
           x += cw
         }

@@ -2625,7 +2625,7 @@ function ContextBar({ pos, list, canEdit, guest, onColour, onStyle, onFront, onB
         <button type="button" className="btn ghost icon-only sm" onClick={onEdit} title="Label" aria-label="Label"><Icon name="text" size={16} /></button>
       </>}
       {one && ['sticky', 'shape'].includes(one.kind) && !locked && <button type="button" className="btn ghost icon-only sm" onClick={onEdit} title="Write (Enter)" aria-label="Write"><Icon name="edit" size={16} /></button>}
-      {list.every(o => o.kind === 'sticky' || o.kind === 'shape') && !locked && (
+      {list.every(o => o.kind === 'sticky' || o.kind === 'shape' || o.kind === 'table') && !locked && (
         <div className="wb-ctx-drop">
           <button type="button" className="btn ghost sm wb-size-btn" onClick={() => setOpen(open === 'size' ? null : 'size')} title="Text size">{one?.data.size || 'Auto'}<Icon name="chevron-down" size={12} /></button>
           {open === 'size' && <div className="wb-ctx-pop wb-sizes">{TEXT_SIZES.map(s => <button key={s.v} type="button" className={`btn ghost sm ${(one?.data.size || 0) === s.v ? 'on' : ''}`} onClick={() => { onStyle({ size: s.v || undefined }); setOpen(null) }}>{s.label}</button>)}</div>}

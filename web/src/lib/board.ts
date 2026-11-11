@@ -444,6 +444,13 @@ export function framesInOrder(objs: Iterable<Obj>): Obj[] {
 
 // ---- data defaults ----
 
+/** A table's text size: the one picked, or one that grows with the rows. */
+export function tableFont(o: Obj): number {
+  if (o.data.size) return o.data.size
+  const rows = Math.max(1, (o.data.cells || [['']]).length)
+  return Math.round(Math.max(16, Math.min(120, (o.h / rows) * 0.34)))
+}
+
 export function textOf(o: Obj): string {
   if (o.kind === 'table') return (o.data.cells || []).map(r => r.filter(Boolean).join(' · ')).filter(Boolean).join('\n')
   return (o.kind === 'frame' ? o.data.title : o.data.text) || ''

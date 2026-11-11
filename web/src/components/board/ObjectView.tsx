@@ -2,7 +2,7 @@
 // scales everything at once). Memoised: only what changed draws again.
 import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Obj } from '../../lib/types'
-import { OUTLINE_ONLY, actorPath, arrowHead, fitSize, paper, penPath, shapeLines, shapePath, shapeTextBox, stickyBox, tint, type LineGeom } from '../../lib/board'
+import { OUTLINE_ONLY, actorPath, arrowHead, fitSize, paper, penPath, shapeLines, shapePath, shapeTextBox, stickyBox, tableFont, tint, type LineGeom } from '../../lib/board'
 import { Icon, iconPath } from '../icons'
 import { Avatar } from '../ui'
 import { hasFormatting, htmlToText, sanitize, textToHTML } from '../../lib/rich'
@@ -322,7 +322,7 @@ function TableView({ o, editing, onEditDone, cell }: ViewProps) {
   const cols = tableCols(o)
   const fill = d.fill && d.fill !== 'none' ? paper(d.fill).bg : undefined
   return (
-    <div className={`ob ob-table ${o.hidden ? 'is-hidden' : ''}`} data-id={o.id} style={place(o, { gridTemplateColumns: cols.map(f => `${f}fr`).join(' '), gridTemplateRows: `repeat(${cells.length}, 1fr)`, fontSize: d.size || 16 })}>
+    <div className={`ob ob-table ${o.hidden ? 'is-hidden' : ''}`} data-id={o.id} style={place(o, { gridTemplateColumns: cols.map(f => `${f}fr`).join(' '), gridTemplateRows: `repeat(${cells.length}, 1fr)`, fontSize: tableFont(o) })}>
       {cells.map((row, r) => cols.map((_, c) => {
         const head = d.header && r === 0
         const on = editing && (cell || '0,0') === `${r},${c}`
