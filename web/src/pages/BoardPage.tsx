@@ -22,7 +22,6 @@ import { CommentsPanel, NewThread, ThreadCard, pinAt, threadsOf, type MentionPer
 import { HistoryPanel } from '../components/board/History'
 import { AIPanel, ChatPicker, Countdown, FramesPanel, SharePanel, TimerPanel, VotePanel, chime } from '../components/board/Panels'
 import { ICON_NAMES, Icon } from '../components/icons'
-import { AskButton } from '../components/AskButton'
 import { Avatar, Confirm, ContextMenu, Loading, type MenuItem, MenuButton, Modal, Segmented, copyText, errMsg, useIsMobile, useToast } from '../components/ui'
 
 type Tool = 'select' | 'hand' | 'sticky' | 'text' | 'shape' | 'line' | 'pen' | 'eraser' | 'frame' | 'comment' | 'sticker' | 'mind' | 'card' | 'embed' | 'icon' | 'table' | 'lasso'
@@ -2069,7 +2068,6 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
         <button type="button" className={`btn ghost icon-only ${panel === 'vote' || votes.open ? 'on' : ''}`} onClick={() => setPanel(panel === 'vote' ? null : 'vote')} title="Voting" aria-label="Voting"><Icon name="vote" size={18} /></button>
         {!guest && !mobile && <button type="button" className={`btn ghost icon-only ${panel === 'ai' ? 'on' : ''}`} onClick={() => setPanel(panel === 'ai' ? null : 'ai')} title="Pocket AI: group, sum up, more ideas" aria-label="Pocket AI"><Icon name="sparkles" size={18} /></button>}
         {!guest && <button type="button" className="btn primary sm wb-share" onClick={() => setPanel(panel === 'share' ? null : 'share')}><Icon name="users" size={15} />{mobile ? '' : 'Share'}</button>}
-        {!guest && <AskButton />}
         <MenuButton label="Board menu" align="right" width={290} items={() => [
           ...(mobile ? [{ label: 'Timer', icon: 'timer', onSelect: () => setPanel('timer') }, ...(!guest ? [{ label: 'Pocket AI', icon: 'sparkles', onSelect: () => setPanel('ai') }] : []), 'sep' as const] : []),
           ...boardMenu(),
