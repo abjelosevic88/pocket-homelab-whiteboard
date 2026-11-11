@@ -225,6 +225,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
   const [shapeTab, setShapeTab] = useState<'Basic' | 'Flowchart' | 'UML' | 'Icons'>('Basic')
   const [embedAt, setEmbedAt] = useState<Pt | null>(null)
   const [showMap, setShowMap] = useState(() => localStorage.getItem('pwb-minimap') !== '0')
+  const [endAdd, setEndAdd] = useState<{ line: string; x: number; y: number } | null>(null) // add something at a line's free end
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; p: Pt; on: string | null } | null>(null)
   const [emojiPick, setEmojiPick] = useState<{ x: number; y: number; title: string; list: string[]; cols: number; current: string[]; pick: (e: string) => void } | null>(null)
   const pressT = useRef(0)
@@ -735,6 +736,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
     downHit.current = hit.id
     const touch = e.pointerType === 'touch'
     setCtxMenu(null)
+    setEndAdd(null)
     window.clearTimeout(pressT.current)
     if (touch) {
       const sx = e.clientX, sy = e.clientY, target = e.target
@@ -1216,8 +1218,14 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
         const len = Math.hypot((o.data.x2 ?? 0) - (o.data.x1 ?? 0), (o.data.y2 ?? 0) - (o.data.y1 ?? 0))
         if (len < 8 && !o.data.to) { apply([], [o.id]); return }
         record(d.before)
-        setSel(new Set([o.id]))
         setTool('select')
+        // the end is free: offer to put something there, joined to the line
+        if (!o.data.to && canEdit && !cancelled) {
+          const c = camRef.current, vr = vpRef.current?.getBoundingClientRect()
+          const ex = o.data.x2 ?? o.x + o.w, ey = o.data.y2 ?? o.y + o.h
+          setSel(new Set()); setEndAdd({ line: o.id, x: (vr?.left || 0) + c.x + ex * c.z, y: (vr?.top || 0) + c.y + ey * c.z }); return
+        }
+        setSel(new Set([o.id]))
         return
       }
       case 'pen': {
@@ -1273,6 +1281,29 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
     if (k === 'youtube' || k === 'pdf') { setSel(new Set([o.id])); setEditing(o.id); return }
     const href = k === 'file' ? conn.imgSrc(o) : o.data.url
     if (href) window.open(href, '_blank', 'noopener')
+  }
+
+  /** Put a new thing at a line's free end and join it there. */
+  const addAtEnd = (lineId: string, kind: 'sticky' | 'text' | 'card' | ShapeForm) => {
+    setEndAdd(null)
+    const ln = objsRef.current.get(lineId)
+    if (!ln) return
+    const from = ln.data.from ? objsRef.current.get(ln.data.from) : undefined
+    const x1 = ln.data.x1 ?? ln.x, y1 = ln.data.y1 ?? ln.y, x2 = ln.data.x2 ?? ln.x + ln.w, y2 = ln.data.y2 ?? ln.y + ln.h
+    const same = from && (kind === 'sticky' ? from.kind === 'sticky' : kind === 'card' ? from.kind === 'card' : kind !== 'text' && from.kind === 'shape' && !from.data.mind)
+    const [w, h] = same ? [from!.w, from!.h] : kind === 'sticky' ? [STICKY_SIZE, STICKY_SIZE] : kind === 'text' ? [240, 36] : kind === 'card' ? [280, 140] : [200, 130]
+    const dx = x2 - x1, dy = y2 - y1
+    const across = Math.abs(dx) >= Math.abs(dy)
+    const x = across ? (dx >= 0 ? x2 : x2 - w) : x2 - w / 2
+    const y = across ? y2 - h / 2 : (dy >= 0 ? y2 : y2 - h)
+    const r = { x: snapV(x), y: snapV(y), w, h }
+    const n = kind === 'sticky' ? make('sticky', r, { text: '', color: from?.kind === 'sticky' ? from.data.color : stickyColor })
+      : kind === 'text' ? make('text', r, { text: '', size: 24 })
+      : kind === 'card' ? make('card', r, { text: '', color: from?.kind === 'card' ? from.data.color : 'blue' })
+      : make('shape', r, { shape: kind, text: '', fill: from?.kind === 'shape' ? from.data.fill : 'white', ...(from?.kind === 'shape' && from.data.stroke ? { stroke: from.data.stroke } : {}) })
+    commit([n, withData(ln, { to: n.id })])
+    setSel(new Set([n.id]))
+    setEditing(n.id)
   }
 
   // the + beside one selected note: another one next to it (shapes: joined by a line)
@@ -1649,7 +1680,7 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
       if (mod) return
       if (e.shiftKey && (k === '!' || e.code === 'Digit1')) { e.preventDefault(); fitAll(); return }
       if (e.shiftKey && (k === '@' || e.code === 'Digit2')) { e.preventDefault(); const r = union(selected().map(o => rectOf(o, objsRef.current))); if (r) animateTo(camFor(r, 120, 2)); return }
-      if (k === 'escape') { setSel(new Set()); setTool('select'); setPanel(null); setFlyout(null); return }
+      if (k === 'escape') { setSel(new Set()); setTool('select'); setPanel(null); setFlyout(null); setEndAdd(null); return }
       if ((k === 'delete' || k === 'backspace') && canEdit) { e.preventDefault(); del(); return }
       if ((k === 'tab' || k === 'enter') && selRef.current.size === 1 && canEdit) {
         const [id] = [...selRef.current]
@@ -2333,6 +2364,15 @@ function Editor({ initial, conn, reload }: { initial: BoardDoc; conn: Conn; relo
       })()}
       <FloatLayer floats={floats} />
       {emojiPick && <EmojiPop {...emojiPick} onClose={() => setEmojiPick(null)} />}
+      {endAdd && (
+        <div className="wb-endadd" style={{ left: clamp(endAdd.x + 12, 8, window.innerWidth - 330), top: clamp(endAdd.y + 12, 8, window.innerHeight - 60) }} onPointerDown={e => e.stopPropagation()} role="menu" aria-label="Add at the end of the line">
+          {([['sticky', 'sticky', 'Sticky note'], ['rect', 'square', 'Rectangle'], ['round', SHAPES.find(x => x.form === 'round')?.icon || 'square', 'Rounded'], ['ellipse', SHAPES.find(x => x.form === 'ellipse')?.icon || 'circle', 'Circle'], ['diamond', SHAPES.find(x => x.form === 'diamond')?.icon || 'square', 'Diamond'], ['text', 'text', 'Text'], ['card', 'card', 'Card']] as const).map(([k, ic, n]) => (
+            <button key={k} type="button" className="btn ghost icon-only sm" title={n} aria-label={n} onClick={() => addAtEnd(endAdd.line, k as 'sticky')}><Icon name={ic} size={18} /></button>
+          ))}
+          <span className="wb-endadd-sep" />
+          <button type="button" className="btn ghost sm" onClick={() => { setSel(new Set([endAdd.line])); setEndAdd(null) }} title="Keep just the line">Just the line</button>
+        </div>
+      )}
       {ctxMenu && <ContextMenu at={{ x: ctxMenu.x, y: ctxMenu.y }} items={menuItems(ctxMenu)} width={260} onClose={() => setCtxMenu(null)} />}
 
       {/* ---- panels */}
