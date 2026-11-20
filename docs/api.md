@@ -36,4 +36,6 @@ Everything is an object `{id, kind, x, y, w, h, z, data}`; `kind` is `sticky tex
 
 `GET /summary`, `GET /search?q=`, `GET /day/YYYY-MM-DD` (for Pocket Day, Search and AI), `POST /boards/ID/ai/{group,summary,ideas}`, `POST /boards/ID/tasks` (`{"ids": […]}` → Pocket Tasks), `POST /boards/ID/to-notes`, `POST /boards/ID/chat`, `POST /boards/ID/files` (a PNG → Pocket Files), `GET /export.json`, `GET /export.csv`, `POST /import`.
 
+Pocket Move can copy your boards out (`move:export`: `GET /export.json`, `GET /export.csv`, `GET /pocket/portable`) and bring them in (`move:import`: `POST /import`); boards brought in before are skipped.
+
 The share link `/s/KEY` uses `/public/b/KEY` (`GET`, `/stream`, `/ops`, `/cursor`, `/vote`, `/votes`, `/uploads`) with the guest's `X-Guest-Id` and `X-Guest-Name`.
