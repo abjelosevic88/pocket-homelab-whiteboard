@@ -649,7 +649,20 @@ func (s *Server) handleAddNotes(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "send 1 to 200 notes")
 		return
 	}
-	colour := in.Color
+	ops := s.notesBelow(ctx, a, in.Notes, in.Color, linkApp(ctx))
+	v, err := s.store.ApplyOps(ctx, a.b.ID, ops, a.uid(), a.name, "")
+	if err != nil {
+		s.fail(w, err, "add notes")
+		return
+	}
+	s.hub.send(a.b.ID, "", map[string]any{"type": "ops", "by": a.name, "ops": ops, "version": v})
+	writeJSON(w, http.StatusCreated, map[string]any{"added": len(ops), "version": v, "url": s.boardURL(a.b)})
+}
+
+// notesBelow lays sticky notes out in rows of six below what is on the
+// board, in the colour asked for or the person's first sticky colour.
+// source is the linked app adding them ("" = the person).
+func (s *Server) notesBelow(ctx context.Context, a *actor, notes []string, colour, source string) []store.Op {
 	if !oneOf(colour, stickyColors) {
 		colour = firstNonEmpty(s.settingsOf(ctx, a.u.ID).StickyColor, "light-yellow")
 	}
@@ -663,7 +676,7 @@ func (s *Server) handleAddNotes(w http.ResponseWriter, r *http.Request) {
 		z = math.Max(z, o.Z)
 	}
 	ops := []store.Op{}
-	for i, t := range in.Notes {
+	for i, t := range notes {
 		t = cleanText(t, 2000)
 		if t == "" {
 			continue
@@ -672,18 +685,11 @@ func (s *Server) handleAddNotes(w http.ResponseWriter, r *http.Request) {
 			Data: mustJSON(map[string]any{"text": t, "color": colour})}
 		ops = append(ops, store.Op{Op: "put", ID: o.ID, Obj: &o})
 	}
-	app := linkApp(ctx)
 	for _, op := range ops {
-		op.Obj.Source = app
+		op.Obj.Source = source
 		op.Obj.UpdatedBy = a.name
 	}
-	v, err := s.store.ApplyOps(ctx, a.b.ID, ops, a.uid(), a.name, "")
-	if err != nil {
-		s.fail(w, err, "add notes")
-		return
-	}
-	s.hub.send(a.b.ID, "", map[string]any{"type": "ops", "by": a.name, "ops": ops, "version": v})
-	writeJSON(w, http.StatusCreated, map[string]any{"added": len(ops), "version": v, "url": s.boardURL(a.b)})
+	return ops
 }
 
 // ---- timer ----

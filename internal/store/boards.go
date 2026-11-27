@@ -122,6 +122,16 @@ func (s *Store) BoardByExt(ctx context.Context, uid int64, ext string) (*Board, 
 
 // BoardsFor lists the boards a person made or is on, newest change first.
 func (s *Store) BoardsFor(ctx context.Context, uid int64) ([]Board, error) {
+	return s.boardsFor(ctx, uid, -1)
+}
+
+// RecentBoards is BoardsFor's first few: the boards changed last.
+func (s *Store) RecentBoards(ctx context.Context, uid int64, n int) ([]Board, error) {
+	return s.boardsFor(ctx, uid, n)
+}
+
+// boardsFor lists a person's boards, newest change first; limit < 0 = all.
+func (s *Store) boardsFor(ctx context.Context, uid int64, limit int) ([]Board, error) {
 	rows, err := s.DB.QueryContext(ctx, `SELECT `+boardCols+`,
 		CASE WHEN b.user_id = ? THEN 'owner' ELSE COALESCE(m.role, '') END,
 		COALESCE(k.starred, 0), COALESCE(k.opened_at, ''), COALESCE(k.folder_id, 0),
@@ -131,7 +141,7 @@ func (s *Store) BoardsFor(ctx context.Context, uid int64) ([]Board, error) {
 		LEFT JOIN members m ON m.board_id = b.id AND m.user_id = ?
 		LEFT JOIN marks k ON k.board_id = b.id AND k.user_id = ?
 		WHERE b.user_id = ? OR m.user_id IS NOT NULL
-		ORDER BY b.updated_at DESC, b.id DESC`, uid, uid, uid, uid)
+		ORDER BY b.updated_at DESC, b.id DESC LIMIT ?`, uid, uid, uid, uid, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -151,6 +161,15 @@ func (s *Store) BoardsFor(ctx context.Context, uid int64) ([]Board, error) {
 		out = append(out, *b)
 	}
 	return out, rows.Err()
+}
+
+// LastOpenedBoard is the board a person made that they opened last (one
+// they never opened counts from its last change, as in the side bar).
+func (s *Store) LastOpenedBoard(ctx context.Context, uid int64) (int64, error) {
+	var id int64
+	err := s.DB.QueryRowContext(ctx, `SELECT b.id FROM boards b LEFT JOIN marks k ON k.board_id = b.id AND k.user_id = ?
+		WHERE b.user_id = ? ORDER BY COALESCE(NULLIF(k.opened_at, ''), b.updated_at) DESC, b.id DESC LIMIT 1`, uid, uid).Scan(&id)
+	return id, notFound(err)
 }
 
 // OwnBoards lists the boards a person made (exports).
@@ -326,7 +345,8 @@ const versionEvery = 10 * time.Minute
 // made while private mode is on is hidden for everyone but hideAs.
 // Deleted things go to the trash; before the first change after a quiet
 // while, the board as it was is kept as a version.
-func (s *Store) ApplyOps(ctx context.Context, bid int64, ops []Op, uid *int64, who, hideAs string) (int64, error) {
+// hooks run last, in the same transaction (a capture's receipt).
+func (s *Store) ApplyOps(ctx context.Context, bid int64, ops []Op, uid *int64, who, hideAs string, hooks ...func(*sql.Tx) error) (int64, error) {
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
@@ -388,6 +408,11 @@ func (s *Store) ApplyOps(ctx context.Context, bid int64, ops []Op, uid *int64, w
 	if err := tx.QueryRowContext(ctx, `UPDATE boards SET version = version + 1, updated_at = ? WHERE id = ? RETURNING version`, now, bid).Scan(&v); err != nil {
 		return 0, err
 	}
+	for _, hook := range hooks {
+		if err := hook(tx); err != nil {
+			return 0, err
+		}
+	}
 	return v, tx.Commit()
 }
 
@@ -401,12 +426,30 @@ func truncate(s string, n int) string {
 
 // SearchObjects finds the words on a person's boards.
 func (s *Store) SearchObjects(ctx context.Context, uid int64, q string, limit int) ([]Object, map[int64]string, error) {
-	like := "%" + strings.ToLower(q) + "%"
+	// % and _ stay wildcards here, as they always were
+	like := "%" + strings.ReplaceAll(strings.ToLower(q), `\`, `\\`) + "%"
+	return s.searchObjects(ctx, uid, like, []string{"sticky", "text", "shape", "frame"}, limit)
+}
+
+// FindNotes finds the words written on sticky notes, text, shapes and cards
+// on a person's boards, the words taken as they are (no wildcards), newest
+// change first. Others' private notes never match.
+func (s *Store) FindNotes(ctx context.Context, uid int64, q string, limit int) ([]Object, map[int64]string, error) {
+	esc := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(strings.ToLower(q))
+	return s.searchObjects(ctx, uid, "%"+esc+"%", []string{"sticky", "text", "shape", "card"}, limit)
+}
+
+func (s *Store) searchObjects(ctx context.Context, uid int64, like string, kinds []string, limit int) ([]Object, map[int64]string, error) {
+	args := []any{uid, uid}
+	for _, k := range kinds {
+		args = append(args, k)
+	}
+	args = append(args, like, limit)
 	rows, err := s.DB.QueryContext(ctx, `SELECT o.id, o.board_id, o.user_id, o.author, o.kind, o.x, o.y, o.w, o.h, o.z, o.data, o.source, o.updated_by, o.created_at, o.updated_at, b.title
 		FROM objects o JOIN boards b ON b.id = o.board_id
 		LEFT JOIN members m ON m.board_id = b.id AND m.user_id = ?
-		WHERE (b.user_id = ? OR m.user_id IS NOT NULL) AND o.hidden_by = '' AND o.kind IN ('sticky','text','shape','frame') AND LOWER(json_extract(o.data, '$.text')) LIKE ?
-		ORDER BY o.updated_at DESC LIMIT ?`, uid, uid, like, limit)
+		WHERE (b.user_id = ? OR m.user_id IS NOT NULL) AND o.hidden_by = '' AND o.kind IN (?`+strings.Repeat(",?", len(kinds)-1)+`) AND LOWER(json_extract(o.data, '$.text')) LIKE ? ESCAPE '\'
+		ORDER BY o.updated_at DESC LIMIT ?`, args...)
 	if err != nil {
 		return nil, nil, err
 	}

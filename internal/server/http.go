@@ -96,6 +96,12 @@ func (s *Server) Router() http.Handler {
 				r.Get("/people", s.handlePeople)
 				r.Get("/uploads/{id}", s.handleGetUpload)
 
+				// the capabilities (links.go): Pocket Search, Day and Hub
+				r.Get("/pocket/search", core.SearchHandler(s.pocketSearch))
+				r.Get("/pocket/day/{date}", core.DayHandler(s.pocketDay))
+				r.Get("/pocket/widget", core.WidgetHandler(s.pocketWidget))
+				r.Post("/pocket/capture", capabilities.Capture.CaptureHandler(s.pocketCapture))
+
 				// boards
 				r.Get("/boards", s.handleBoards)
 				r.Post("/boards", s.handleCreateBoard)

@@ -36,6 +36,15 @@ Everything is an object `{id, kind, x, y, w, h, z, data}`; `kind` is `sticky tex
 
 `GET /summary`, `GET /search?q=`, `GET /day/YYYY-MM-DD` (for Pocket Day, Search and AI), `POST /boards/ID/ai/{group,summary,ideas}`, `POST /boards/ID/tasks` (`{"ids": […]}` → Pocket Tasks), `POST /boards/ID/to-notes`, `POST /boards/ID/chat`, `POST /boards/ID/files` (a PNG → Pocket Files), `GET /export.json`, `GET /export.csv`, `POST /import`.
 
+Pocket Search, Day and Hub find Whiteboard on their own (Pocket Core's capabilities), each through one route and its one scope:
+
+| | |
+|---|---|
+| `GET /pocket/search?q=&limit=` | `pocket:search` — boards by name or description, then sticky notes, text, shapes and cards with the words (`?o=` opens the board at the note). |
+| `GET /pocket/day/YYYY-MM-DD?tz=` | `pocket:day` — a line per board you added things to or changed things on that day. |
+| `GET /pocket/widget` | `pocket:widget` — the boards changed last: when, and who else is on them. |
+| `POST /pocket/capture` | `pocket:capture` — `{"request_id", "text"}` puts a sticky note on the board of yours you opened last, or on the board named before a colon (`Retro: more coffee`) if you may change it. The same `request_id` again adds nothing. |
+
 Pocket Move can copy your boards out (`move:export`: `GET /export.json`, `GET /export.csv`, `GET /pocket/portable`) and bring them in (`move:import`: `POST /import`); boards brought in before are skipped.
 
 The share link `/s/KEY` uses `/public/b/KEY` (`GET`, `/stream`, `/ops`, `/cursor`, `/vote`, `/votes`, `/uploads`) with the guest's `X-Guest-Id` and `X-Guest-Name`.

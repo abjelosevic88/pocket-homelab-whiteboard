@@ -219,10 +219,12 @@ func (s *Server) registerWithCore(ctx context.Context) error {
 		Description: "A whiteboard without edges for thinking together: sticky notes, text, shapes, arrows that stay joined, frames, pen drawings and pictures. Everyone on the board sees each change and each other's pointer as it happens. Run a retrospective or a brainstorm from a template, vote with dots, keep time with a shared timer, sort notes by colour or let Pocket AI group them by theme, and present frame by frame. Share a board with people on this box or by a link, keep a picture of it, and turn the notes you pick into Pocket Tasks. Links to Pocket Tasks, Notes, Chat and Files.",
 		Icon:        "/favicon.svg", Version: Version,
 		URL: s.cfg.CoreAppURL, PublicURL: s.cfg.BaseURL, HealthPath: "/healthz", EnvPrefix: "WHITEBOARD",
-		Publishes: eventTopics,
-		Offers:    linkOffers,
-		Portable:  portable,
-		Uses:      append(linkUses(), core.InferenceUse()),
+		Publishes:    eventTopics,
+		Offers:       linkOffers,
+		Portable:     portable,
+		Category:     "Work",
+		Capabilities: capabilities,
+		Uses:         append(linkUses(), core.InferenceUse()),
 	}
 	if s.cfg.BaseURL != "" {
 		m.OIDC = &core.OIDCRequest{RedirectURIs: []string{s.oidcCallbackURL()}}

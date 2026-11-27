@@ -36,7 +36,7 @@
 - **Templates**: retrospective, start-stop-continue, brainstorm, kanban, SWOT, week plan, mind map, journey map.
 - **Sharing**: people on this box as editors or viewers; a link for anyone (view or edit) with a QR code.
 - **Out**: a PNG of the board or of what is picked, every note as CSV, the whole board as JSON (and back in).
-- **With Pocket Core**: sign in with Core; notes become **Pocket Tasks**, a board is kept in **Pocket Notes**, its link goes to **Pocket Chat**, its picture to **Pocket Files**; **Pocket AI** groups notes by theme, sums up and suggests more. Pocket Search, Day and AI can read your boards (`whiteboard:read`) and put notes on them (`whiteboard:write`) once you switch those links on.
+- **With Pocket Core**: sign in with Core; notes become **Pocket Tasks**, a board is kept in **Pocket Notes**, its link goes to **Pocket Chat**, its picture to **Pocket Files**; **Pocket AI** groups notes by theme, sums up and suggests more. Pocket Search, Day and AI can read your boards (`whiteboard:read`) and put notes on them (`whiteboard:write`) once you switch those links on. Pocket Search finds your boards and the words on their notes and cards (`!whiteboard`, `!board`), Pocket Day lists the boards you worked on each day, and Pocket Hub shows the boards changed last and keeps a quick line as a sticky note on the board of yours you opened last (or `Board name: the note`).
 
 ## Run it
 
